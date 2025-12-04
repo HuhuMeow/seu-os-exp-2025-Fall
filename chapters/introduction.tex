@@ -1,0 +1,318 @@
+%% introduction.tex 
+%% ------------------
+%% Author: HuhuMeow (Huhu_Miao)
+%% License: MIT
+\section{实验环境简述}
+\par 本次实验采用\texttt{Arch Linux ARM aarch64}，内核版本为{Linux 6.18.0-1-aarch64-ARCH}。虚拟机版本为VMware Fusion 13.6.4。
+\section{Linux进程管理及其扩展}
+\subsection{实验内容}
+\par 实现一个系统调用\texttt{hide}，使得可以根据指定的参数隐藏进程，使用户无法使用\texttt{ps}或\texttt{top}观察到进程状态。
+\subsection{具体要求}
+\begin{enumerate}
+  \item 实现系统调用\texttt{int hide(pid\_t pid, int on)}，在进程\texttt{pid}有效的前提下，如果\texttt{on}置\texttt{1}，进程被隐藏，用户无法通过\texttt{ps}或\texttt{top}观察到进程状态；如果\texttt{on}置\texttt{0}且此前为隐藏状态，则恢复正常状态。
+  \item 考虑权限问题，只有\texttt{root}用户才能隐藏进程。 
+  \item 设计一个新的系统调用\texttt{int hide\_user\_processes(uid\_t uid, char *binname)}，参数\texttt{uid}为用户ID号，当\texttt{binname}参数为\texttt{NULL}时，隐藏该用户的所有进程；否则，隐藏二进制映像名为\texttt{binname}的用户进程。该系统调用应与\texttt{hide}系统调用共存。
+  \item 在\texttt{/proc}目录下创建一个文件\texttt{/proc/hidden}，该文件可读可写，对应一个全局变量\texttt{hidden\_flag}，当\texttt{hidden\_flag}为0时，所有进程都无法隐藏，即便此前进程被\texttt{hide}系统调用要求隐藏。只有当\texttt{hidden\_flag}为1时，此前通过\texttt{hide}调用要求被屏蔽的进程才隐藏起来
+  \item 在\texttt{/proc}目录下创建一个文件\texttt{/proc/hidden\_process}，该文件的内容包含所有被隐藏进程的\texttt{pid}，各\texttt{pid}之间用空格分开
+\end{enumerate}
+\newpage
+\subsection{实验过程}
+\subsubsection{实现系统调用\texttt{hide}}
+\par 首先，下载内核源码并解压到相应目录。然后修改文件。
+\begin{lstlisting}
+~/linux-6.18 % vim include/linux/sched.h
+\end{lstlisting}
+\par 跳转到此文件的第819行，从这行开始是结构体\texttt{task\_struct}的定义，我们跳转到定义的最后，也就是1656行，在这里添加\texttt{hide\_flag}(1660)。
+\begin{lstlisting}[firstnumber=1656,escapeinside={(*@}{@*)}]
+#ifdef CONFIG_UNWIND_USER
+	struct unwind_task_info		unwind_info;
+#endif
+
+	int hide_flag; /* 0:show 1:hide */
+
+	/* CPU-specific state of this task: */
+	struct thread_struct		thread;
+
+	/*
+	 * New fields for task_struct should be added above here, so that
+	 * they are included in the randomized portion of task_struct.
+	 */
+	randomized_struct_fields_end
+} __attribute__ ((aligned (64)));
+\end{lstlisting}
+修改完\texttt{task\_struct}后，再修改\texttt{fork.c}。
+\begin{lstlisting}
+~/linux-6.18 % vim kernel/fork.c
+\end{lstlisting}
+修改此文件在1916行开始定义的\texttt{copy\_process}函数，添加一行代码初始化\texttt{hide\_flag}，确保所有的子进程默认是不隐藏的。
+\begin{lstlisting}[firstnumber=2012]
+	p = dup_task_struct(current, node);
+	if (!p)
+		goto fork_out;
+	
+	p->hide_flag = 0;
+
+	p->flags &= ~PF_KTHREAD;
+	if (args->kthread)
+		p->flags |= PF_KTHREAD;
+\end{lstlisting}
+\begin{lstlisting}
+~/linux-6.18 % vim kernel/sys.c
+\end{lstlisting}
+\begin{lstlisting}[firstnumber=3037]
+SYSCALL_DEFINE2(hide, pid_t, pid, int, on)
+{
+    struct task_struct *p;
+    
+    /* 1. 权限检查：必须是 Root 用户 (UID 0) */
+    if (!uid_eq(current_euid(), GLOBAL_ROOT_UID))
+        return -EPERM; // Permission denied
+
+    /* 2. 查找进程 (需要加 RCU 锁以安全访问进程列表) */
+    rcu_read_lock();
+    p = find_task_by_vpid(pid);
+    
+    if (p) {
+        /* 3. 修改标记 */
+        if (on == 1) {
+            p->hide_flag = 1;
+        } else {
+            p->hide_flag = 0;
+        }
+    }
+    rcu_read_unlock();
+
+    /* 如果没找到进程，返回错误 ESRCH (No such process) */
+    if (!p)
+        return -ESRCH;
+
+    return 0;
+}
+#endif /* CONFIG_COMPAT */
+\end{lstlisting}
+\begin{lstlisting}
+~/linux-6.18 % vim fs/readdir.c
+\end{lstlisting}
+\begin{lstlisting}[firstnumber=396]
+SYSCALL_DEFINE3(getdents64, unsigned int, fd,
+		struct linux_dirent64 __user *, dirent, unsigned int, count)
+{
+	CLASS(fd_pos, f)(fd);
+	struct getdents_callback64 buf = {
+		.ctx.actor = filldir64,
+		.ctx.count = count,
+		.current_dir = dirent
+	};
+	int error;
+
+	if (fd_empty(f))
+		return -EBADF;
+
+	error = iterate_dir(fd_file(f), &buf.ctx);
+	if (error >= 0)
+		error = buf.error;
+	if (buf.prev_reclen) {
+		struct linux_dirent64 __user * lastdirent;
+		typeof(lastdirent->d_off) d_off = buf.ctx.pos;
+
+		lastdirent = (void __user *) buf.current_dir - buf.prev_reclen;
+		if (put_user(d_off, &lastdirent->d_off))
+			error = -EFAULT;
+		else
+			error = count - buf.ctx.count;
+	}
+	return error;
+}
+\end{lstlisting}
+\begin{lstlisting}
+/* --- fs/readdir.c 头部新增/确认引用 --- */
+#include <linux/ctype.h>   // 用于 isdigit
+#include <linux/sched.h>   // 用于 task_struct, find_task_by_vpid
+\end{lstlisting}
+\begin{lstlisting}[firstnumber = 398, tabsize=4, caption={修改\texttt{fs/readdir.c}中的\texttt{getdents64}系统调用}]
+SYSCALL_DEFINE3(getdents64, unsigned int, fd,
+		struct linux_dirent64 __user *, dirent, unsigned int, count)
+{
+	CLASS(fd_pos, f)(fd);
+	struct getdents_callback64 buf = {
+		.ctx.actor = filldir64,
+		.ctx.count = count,
+		.current_dir = dirent
+	};
+	int error;
+
+	if (fd_empty(f))
+		return -EBADF;
+
+	error = iterate_dir(fd_file(f), &buf.ctx);
+	if (error >= 0)
+		error = buf.error;
+	if (buf.prev_reclen) {
+		struct linux_dirent64 __user * lastdirent;
+		typeof(lastdirent->d_off) d_off = buf.ctx.pos;
+
+		lastdirent = (void __user *) buf.current_dir - buf.prev_reclen;
+		if (put_user(d_off, &lastdirent->d_off))
+			error = -EFAULT;
+		else
+			error = count - buf.ctx.count;
+	}
+
+	if (error > 0) {
+		struct linux_dirent64 *kdirent, *d;
+		int bpos = 0;
+		int bytes_read = error;
+
+		/* 使用 kvmalloc 分配临时内核缓冲区 */
+		kdirent = kvmalloc(bytes_read, GFP_KERNEL);
+		if (kdirent) {
+			/* 从用户空间拷贝数据 */
+			if (copy_from_user(kdirent, dirent, bytes_read) == 0) {
+				
+				while (bpos < bytes_read) {
+					d = (void *)kdirent + bpos;
+					
+					/* 安全检查 */
+					if (d->d_reclen == 0) break;
+
+					/* 检查文件名是否为纯数字 (PID) */
+					int is_pid = 1;
+					int i = 0;
+					if (d->d_name[0] == '\0') is_pid = 0;
+					
+					while (d->d_name[i] != '\0') {
+						if (!isdigit(d->d_name[i])) {
+							is_pid = 0;
+							break;
+						}
+						i++;
+					}
+
+					int need_hide = 0;
+					if (is_pid) {
+						long pid_num;
+						if (kstrtol(d->d_name, 10, &pid_num) == 0) {
+							struct task_struct *p;
+							
+							rcu_read_lock();
+							p = find_task_by_vpid(pid_num);
+							/* 检查 hide_flag */
+							if (p && p->hide_flag == 1) {
+								need_hide = 1;
+							}
+							rcu_read_unlock();
+						}
+					}
+
+					if (need_hide) {
+						/* 移除当前项：将后续数据前移覆盖 */
+						int move_size = bytes_read - (bpos + d->d_reclen);
+						memmove(d, (void *)d + d->d_reclen, move_size);
+						
+						bytes_read -= d->d_reclen;
+						/* 此时 d 指向了原来的下一项（现已被移过来），continue 重新检查它 */
+						continue;
+					}
+
+					bpos += d->d_reclen;
+				}
+
+				/* 将过滤后的数据写回用户空间 */
+				if (copy_to_user(dirent, kdirent, bytes_read) == 0) {
+					error = bytes_read;
+				}
+			}
+			kvfree(kdirent);
+		}
+	}
+	return error;
+}
+\end{lstlisting}
+\par 在\texttt{include/linux/syscalls.h}的倒数第二行，也就是在 \texttt{\#endif} 之前， 添加声明\texttt{asmlinkage long sys\_hide(pid\_t pid, int on);}
+\begin{lstlisting}[firstnumber = 411 , caption = {在\texttt{scripts/syscall.tbl}中注册系统调用号}]
+468	common	file_getattr			sys_file_getattr
+469	common	file_setattr			sys_file_setattr
+470	common	hide				sys_hide
+\end{lstlisting}
+\begin{lstlisting}
+# pacman -S base-devel ncurses bison flex openssl elfutils bc
+~/linux-6.18 % zcat /proc/config.gz > .config
+~/linux-6.18 % make localmodconfig
+~/linux-6.18 % scripts/config --set-str SYSTEM_TRUSTED_KEYS ""
+~/linux-6.18 % scripts/config --set-str SYSTEM_REVOCATION_KEYS ""
+~/linux-6.18 % ./scripts/config --enable CONFIG_LZ4_COMPRESS
+~/linux-6.18 % ./scripts/config --enable CONFIG_LZ4_DECOMPRESS
+~/linux-6.18 % ./scripts/config --module CONFIG_CRYPTO_LZ4
+~/linux-6.18 % make -j$(nproc)
+~/linux-6.18 % sudo make modules_install
+~/linux-6.18 % sudo cp arch/arm64/boot/Image /boot/Image-custom
+~/linux-6.18 % sudo cp System.map /boot/System.map-custom
+$ ls /lib/modules/ #输出结果为6.18.0-1-aarch64-ARCH  6.18.0-ARCH，后者即为刚编译好的内核
+# vim /etc/mkinitcpio.d/linux-custom.preset # 填写内容见后面的代码 
+# mkinitcpio -p linux-custom
+# mv /boot/Image-custom /boot/vmlinuz-linux-custom # Arch Linux 的 GRUB 脚本通常只认以 vmlinuz- 开头的文件
+# grub-mkconfig -o /boot/grub/grub.cfg
+# reboot
+\end{lstlisting}
+\begin{lstlisting}[caption = {/etc/mkinitcpio.d/linux-custom.preset}]
+ALL_kver="6.18.0-ARCH" # 这行是不可以随便填的，应该与前文ls /lib/modules/的输出结果对齐
+
+PRESETS=('default')
+
+# 生成名为 initramfs-linux-custom.img 的文件
+default_image="/boot/initramfs-linux-custom.img"
+default_options=""
+\end{lstlisting}
+\begin{lstlisting}[caption = {\texttt{hide\_tool.c}}]
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+#include <errno.h>
+
+#define __NR_hide 470 
+
+int main(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("Usage: %s <pid> <1(hide)|0(show)>\n", argv[0]);
+        return 1;
+    }
+
+    pid_t pid = atoi(argv[1]);
+    int on = atoi(argv[2]);
+
+    printf("Command: Make PID %d %s...\n", pid, on ? "INVISIBLE" : "VISIBLE");
+
+    /* 调用系统调用 */
+    long ret = syscall(__NR_hide, pid, on);
+
+    if (ret == 0) {
+        printf("Success! System call returned 0.\n");
+    } else {
+        perror("Syscall failed");
+        printf("Error code: %d\n", errno);
+        if (errno == 38) printf("Hint: ENOSYS (38) means the syscall number is wrong or kernel is old.\n");
+    }
+
+    return 0;
+}
+\end{lstlisting}
+\begin{lstlisting}[caption = {测试\texttt{sys\_hide}}]
+huhu@huhumiao ~ % ps
+    PID TTY          TIME CMD
+    524 pts/0    00:00:00 zsh
+    598 pts/0    00:00:00 ps
+huhu@huhumiao ~ % sudo ./hide_tool 524 1
+Command: Make PID 524 INVISIBLE...
+Success! System call returned 0.
+huhu@huhumiao ~ % ps
+    PID TTY          TIME CMD
+    605 pts/0    00:00:00 ps
+huhu@huhumiao ~ % sudo ./hide_tool 524 0
+Command: Make PID 524 VISIBLE...
+Success! System call returned 0.
+huhu@huhumiao ~ % ps
+    PID TTY          TIME CMD
+    524 pts/0    00:00:00 zsh
+    612 pts/0    00:00:00 ps
+\end{lstlisting}

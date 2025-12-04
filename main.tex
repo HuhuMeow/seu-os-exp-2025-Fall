@@ -1,0 +1,46 @@
+%TEX program = xelatex
+\documentclass[fontset = mac ms]{temp} % 使用 macOS 上的 MS Word 字体
+% \documentclass{seuthesis2024b} % 使用 fonts 文件夹字体
+% \documentclass[twoside]{seuthesis2024b} % 使用双页模式
+% 更多自定义选项见 seuthesis2024b.cls 文件的定义
+% 注意选项可以合并使用
+\renewcommand{\lstlistingname}{代码}
+\title{操作系统实践-实验报告}
+% \title{东南大学本科毕设 \LaTeX{} 模版}[第二行内容]
+% \title{东南大学本科毕设 \LaTeX{} 模版}[第二行内容写满了还是不太塞得下啊][-2] % 此时使用 \zihao{-2} 大小
+\studentID{}
+\author{HuhuMeow}
+\department{计算机科学与工程学院}
+\major{计算机科学与技术}
+% % default arXiv date is 2024-03-01
+% \makeatletter
+% \renewcommand \seuthesis@arxiv@urldate {2024-04-01} % the date you want
+% \makeatother
+
+% 添加参考文献 bib 文件，注意使用符合 BibLaTeX（配合 Biber）的格式
+\addbibresource{ref/IEEEfull.bib}
+\addbibresource{ref/ref.bib}
+
+% amsthm 定理设置
+\newtheorem{theorem}{定理}[chapter]
+\newtheorem{definition}{定义}[chapter]
+\newtheorem{lemma}{引理}[chapter]
+\newtheorem{corollary}{推论}[chapter]
+
+\begin{document}
+  \maketitle
+
+  % \chapter{绪论}\label{chap:introduction}
+  \input{chapters/introduction}
+  
+  % \chapter{正文}\label{chap:body}
+  % \input{chapters/body}
+
+  % \chapter{模板使用}\label{chap:usage}
+  % \input{chapters/usage}
+
+  % 此处可以插入更多的章节
+
+  % 参考文献
+  % \chapterBib\label{chap:bib}
+\end{document}
