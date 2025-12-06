@@ -3,17 +3,18 @@
 %% Author: HuhuMeow (Huhu_Miao)
 %% License: MIT
 \section{实验环境简述}
-\par 本次实验采用\texttt{Arch Linux ARM aarch64}，内核版本为{Linux 6.18.0-1-aarch64-ARCH}。虚拟机版本为VMware Fusion 13.6.4。
+\par 本次实验采用\texttt{Arch Linux ARM aarch64}，内核版本为{Linux 6.18.0-1-aarch64-ARCH}\footnote{6.18版本的内核在2025年11月30日被确认为LTS版本，会支持到2027年12月。}。虚拟机版本为VMware Fusion 13.6.4。
+\par 我注意到，在\texttt{archinstall}的帮助下，Arch Linux 的安装并不比其他发行版更难。由于 Arch Linux 的轻量化，它在虚拟机中的启动速度也令我满意，这对于需要频繁重启的实验场景友好。出于以上原因，我选择了 Arch Linux 。
 \section{Linux进程管理及其扩展}
 \subsection{实验内容}
 \par 实现一个系统调用\texttt{hide}，使得可以根据指定的参数隐藏进程，使用户无法使用\texttt{ps}或\texttt{top}观察到进程状态。
 \subsection{具体要求}
 \begin{enumerate}
-  \item 实现系统调用\texttt{int hide(pid\_t pid, int on)}，在进程\texttt{pid}有效的前提下，如果\texttt{on}置\texttt{1}，进程被隐藏，用户无法通过\texttt{ps}或\texttt{top}观察到进程状态；如果\texttt{on}置\texttt{0}且此前为隐藏状态，则恢复正常状态。
-  \item 考虑权限问题，只有\texttt{root}用户才能隐藏进程。 
-  \item 设计一个新的系统调用\texttt{int hide\_user\_processes(uid\_t uid, char *binname)}，参数\texttt{uid}为用户ID号，当\texttt{binname}参数为\texttt{NULL}时，隐藏该用户的所有进程；否则，隐藏二进制映像名为\texttt{binname}的用户进程。该系统调用应与\texttt{hide}系统调用共存。
-  \item 在\texttt{/proc}目录下创建一个文件\texttt{/proc/hidden}，该文件可读可写，对应一个全局变量\texttt{hidden\_flag}，当\texttt{hidden\_flag}为0时，所有进程都无法隐藏，即便此前进程被\texttt{hide}系统调用要求隐藏。只有当\texttt{hidden\_flag}为1时，此前通过\texttt{hide}调用要求被屏蔽的进程才隐藏起来
-  \item 在\texttt{/proc}目录下创建一个文件\texttt{/proc/hidden\_process}，该文件的内容包含所有被隐藏进程的\texttt{pid}，各\texttt{pid}之间用空格分开
+	\item 实现系统调用\texttt{int hide(pid\_t pid, int on)}，在进程\texttt{pid}有效的前提下，如果\texttt{on}置\texttt{1}，进程被隐藏，用户无法通过\texttt{ps}或\texttt{top}观察到进程状态；如果\texttt{on}置\texttt{0}且此前为隐藏状态，则恢复正常状态。
+	\item 考虑权限问题，只有\texttt{root}用户才能隐藏进程。 
+	\item 设计一个新的系统调用\texttt{int hide\_user\_processes(uid\_t uid, char *binname)}，参数\texttt{uid}为用户ID号，当\texttt{binname}参数为\texttt{NULL}时，隐藏该用户的所有进程；否则，隐藏二进制映像名为\texttt{binname}的用户进程。该系统调用应与\texttt{hide}系统调用共存。
+	\item 在\texttt{/proc}目录下创建一个文件\texttt{/proc/hidden}，该文件可读可写，对应一个全局变量\texttt{hidden\_flag}，当\texttt{hidden\_flag}为0时，所有进程都无法隐藏，即便此前进程被\texttt{hide}系统调用要求隐藏。只有当\texttt{hidden\_flag}为1时，此前通过\texttt{hide}调用要求被屏蔽的进程才隐藏起来
+	\item 在\texttt{/proc}目录下创建一个文件\texttt{/proc/hidden\_process}，该文件的内容包含所有被隐藏进程的\texttt{pid}，各\texttt{pid}之间用空格分开
 \end{enumerate}
 \newpage
 \subsection{实验过程}
@@ -22,15 +23,15 @@
 \begin{lstlisting}
 ~/linux-6.18 % vim include/linux/sched.h
 \end{lstlisting}
-\par 跳转到此文件的第819行，从这行开始是结构体\texttt{task\_struct}的定义，我们跳转到定义的最后，也就是1656行，在这里添加\texttt{hide\_flag}(1660)。
-\begin{lstlisting}[firstnumber=1656,escapeinside={(*@}{@*)}]
+\par 跳转到此文件的第819行，从这行开始是结构体\texttt{task\_struct}的定义，我们跳转到定义的最后(1656行)，在这里添加\texttt{hide\_flag}(1660)。
+\begin{lstlisting}[firstnumber=1656]
 #ifdef CONFIG_UNWIND_USER
 	struct unwind_task_info		unwind_info;
 #endif
 
-	int hide_flag; /* 0:show 1:hide */
+	(*@\textcolor{mygreen}{int hide\_flag; /* 0:show 1:hide */}@*)
 
-	/* CPU-specific state of this task: */
+	/* CPU-specific state of this task:
 	struct thread_struct		thread;
 
 	/*
@@ -50,7 +51,7 @@
 	if (!p)
 		goto fork_out;
 	
-	p->hide_flag = 0;
+		(*@\textcolor{mygreen}{p->hide\_flag = 0;}@*)
 
 	p->flags &= ~PF_KTHREAD;
 	if (args->kthread)
@@ -60,76 +61,45 @@
 ~/linux-6.18 % vim kernel/sys.c
 \end{lstlisting}
 \begin{lstlisting}[firstnumber=3037]
-SYSCALL_DEFINE2(hide, pid_t, pid, int, on)
-{
-    struct task_struct *p;
+(*@\textcolor{mygreen}{SYSCALL\_DEFINE2(hide, pid\_t, pid, int, on)}@*)
+(*@\textcolor{mygreen}{\{}@*)
+    (*@\textcolor{mygreen}{struct task\_struct *p;}@*)
     
-    /* 1. 权限检查：必须是 Root 用户 (UID 0) */
-    if (!uid_eq(current_euid(), GLOBAL_ROOT_UID))
-        return -EPERM; // Permission denied
+    (*@\textcolor{mygreen}{/* 1. 权限检查：必须是 Root 用户 (UID 0) */}@*)
+    (*@\textcolor{mygreen}{if (!uid\_eq(current\_euid(), GLOBAL\_ROOT\_UID))}@*)
+        (*@\textcolor{mygreen}{return -EPERM; // Permission denied}@*)
 
-    /* 2. 查找进程 (需要加 RCU 锁以安全访问进程列表) */
-    rcu_read_lock();
-    p = find_task_by_vpid(pid);
+    (*@\textcolor{mygreen}{/* 2. 查找进程 (需要加 RCU 锁以安全访问进程列表) */}@*)
+    (*@\textcolor{mygreen}{rcu\_read\_lock();}@*)
+    (*@\textcolor{mygreen}{p = find\_task\_by\_vpid(pid);}@*)
     
-    if (p) {
-        /* 3. 修改标记 */
-        if (on == 1) {
-            p->hide_flag = 1;
-        } else {
-            p->hide_flag = 0;
-        }
-    }
-    rcu_read_unlock();
-
-    /* 如果没找到进程，返回错误 ESRCH (No such process) */
-    if (!p)
-        return -ESRCH;
-
-    return 0;
-}
+    (*@\textcolor{mygreen}{if (p) \{}@*)
+        (*@\textcolor{mygreen}{/* 3. 修改标记 */}@*)
+        (*@\textcolor{mygreen}{if (on == 1) \{}@*)
+            (*@\textcolor{mygreen}{p->hide\_flag = 1;}@*)
+        (*@\textcolor{mygreen}{\} else \{}@*)
+            (*@\textcolor{mygreen}{p->hide\_flag = 0;}@*)
+        (*@\textcolor{mygreen}{\}}@*)
+    (*@\textcolor{mygreen}{\}}@*)
+    (*@\textcolor{mygreen}{rcu\_read\_unlock();}@*)
+(*@\textcolor{mygreen}{}@*)
+    (*@\textcolor{mygreen}{/* 如果没找到进程，返回错误 ESRCH (No such process) */}@*)
+    (*@\textcolor{mygreen}{if (!p)}@*)
+        (*@\textcolor{mygreen}{return -ESRCH;}@*)
+(*@\textcolor{mygreen}{}@*)
+    (*@\textcolor{mygreen}{return 0;}@*)
+(*@\textcolor{mygreen}{\}}@*)
 #endif /* CONFIG_COMPAT */
 \end{lstlisting}
 \begin{lstlisting}
 ~/linux-6.18 % vim fs/readdir.c
-\end{lstlisting}
-\begin{lstlisting}[firstnumber=396]
-SYSCALL_DEFINE3(getdents64, unsigned int, fd,
-		struct linux_dirent64 __user *, dirent, unsigned int, count)
-{
-	CLASS(fd_pos, f)(fd);
-	struct getdents_callback64 buf = {
-		.ctx.actor = filldir64,
-		.ctx.count = count,
-		.current_dir = dirent
-	};
-	int error;
-
-	if (fd_empty(f))
-		return -EBADF;
-
-	error = iterate_dir(fd_file(f), &buf.ctx);
-	if (error >= 0)
-		error = buf.error;
-	if (buf.prev_reclen) {
-		struct linux_dirent64 __user * lastdirent;
-		typeof(lastdirent->d_off) d_off = buf.ctx.pos;
-
-		lastdirent = (void __user *) buf.current_dir - buf.prev_reclen;
-		if (put_user(d_off, &lastdirent->d_off))
-			error = -EFAULT;
-		else
-			error = count - buf.ctx.count;
-	}
-	return error;
-}
 \end{lstlisting}
 \begin{lstlisting}
 /* --- fs/readdir.c 头部新增/确认引用 --- */
 #include <linux/ctype.h>   // 用于 isdigit
 #include <linux/sched.h>   // 用于 task_struct, find_task_by_vpid
 \end{lstlisting}
-\begin{lstlisting}[firstnumber = 398, tabsize=4, caption={修改\texttt{fs/readdir.c}中的\texttt{getdents64}系统调用}]
+\begin{lstlisting}[firstnumber = 398, tabsize=2, caption={修改\texttt{fs/readdir.c}中的\texttt{getdents64}系统调用}]
 SYSCALL_DEFINE3(getdents64, unsigned int, fd,
 		struct linux_dirent64 __user *, dirent, unsigned int, count)
 {
@@ -158,73 +128,74 @@ SYSCALL_DEFINE3(getdents64, unsigned int, fd,
 			error = count - buf.ctx.count;
 	}
 
-	if (error > 0) {
-		struct linux_dirent64 *kdirent, *d;
-		int bpos = 0;
-		int bytes_read = error;
+	(*@\textcolor{mygreen}{if (error > 0) \{}@*)
+		(*@\textcolor{mygreen}{struct linux\_dirent64 *kdirent, *d;}@*)
+		(*@\textcolor{mygreen}{int bpos = 0;}@*)
+		(*@\textcolor{mygreen}{int bytes\_read = error;}@*)
 
-		/* 使用 kvmalloc 分配临时内核缓冲区 */
-		kdirent = kvmalloc(bytes_read, GFP_KERNEL);
-		if (kdirent) {
-			/* 从用户空间拷贝数据 */
-			if (copy_from_user(kdirent, dirent, bytes_read) == 0) {
+		(*@\textcolor{mygreen}{/* 使用 kvmalloc 分配临时内核缓冲区 */}@*)
+		(*@\textcolor{mygreen}{kdirent = kvmalloc(bytes\_read, GFP\_KERNEL);}@*)
+		(*@\textcolor{mygreen}{if (kdirent) \{}@*)
+			(*@\textcolor{mygreen}{/* 从用户空间拷贝数据 */}@*)
+			(*@\textcolor{mygreen}{if (copy\_from\_user(kdirent, dirent, bytes\_read) == 0) \{}@*)
 				
-				while (bpos < bytes_read) {
-					d = (void *)kdirent + bpos;
+				(*@\textcolor{mygreen}{while (bpos < bytes\_read) \{}@*)
+					(*@\textcolor{mygreen}{d = (void *)kdirent + bpos;}@*)
 					
-					/* 安全检查 */
-					if (d->d_reclen == 0) break;
+					(*@\textcolor{mygreen}{/* 安全检查 */}@*)
+					(*@\textcolor{mygreen}{if (d->d\_reclen == 0) break;}@*)
 
-					/* 检查文件名是否为纯数字 (PID) */
-					int is_pid = 1;
-					int i = 0;
-					if (d->d_name[0] == '\0') is_pid = 0;
+					(*@\textcolor{mygreen}{/* 检查文件名是否为纯数字 (PID) */}@*)
+					(*@\textcolor{mygreen}{int is\_pid = 1;}@*)
+					(*@\textcolor{mygreen}{int i = 0;}@*)
+					(*@\textcolor{mygreen}{if (d->d\_name[0] == '\\0') is\_pid = 0;}@*)
 					
-					while (d->d_name[i] != '\0') {
-						if (!isdigit(d->d_name[i])) {
-							is_pid = 0;
-							break;
-						}
-						i++;
-					}
+					(*@\textcolor{mygreen}{while (d->d\_name[i] != '\\0') \{}@*)
+						(*@\textcolor{mygreen}{if (!isdigit(d->d\_name[i])) \{}@*)
+							(*@\textcolor{mygreen}{is\_pid = 0;}@*)
+							(*@\textcolor{mygreen}{break;}@*)
+						(*@\textcolor{mygreen}{\}}@*)
+						(*@\textcolor{mygreen}{i++;}@*)
+					(*@\textcolor{mygreen}{\}}@*)
 
-					int need_hide = 0;
-					if (is_pid) {
-						long pid_num;
-						if (kstrtol(d->d_name, 10, &pid_num) == 0) {
-							struct task_struct *p;
+					(*@\textcolor{mygreen}{int need\_hide = 0;}@*)
+					(*@\textcolor{mygreen}{if (is\_pid) \{}@*)
+						(*@\textcolor{mygreen}{long pid\_num;}@*)
+						(*@\textcolor{mygreen}{if (kstrtol(d->d\_name, 10, \&pid\_num) == 0) \{}@*)
+							(*@\textcolor{mygreen}{struct task\_struct *p;}@*)
 							
-							rcu_read_lock();
-							p = find_task_by_vpid(pid_num);
-							/* 检查 hide_flag */
-							if (p && p->hide_flag == 1) {
-								need_hide = 1;
-							}
-							rcu_read_unlock();
-						}
-					}
+							(*@\textcolor{mygreen}{rcu\_read\_lock();}@*)
+							(*@\textcolor{mygreen}{p = find\_task\_by\_vpid(pid\_num);}@*)
+							(*@\textcolor{mygreen}{/* 检查 hide\_flag */}@*)
+							(*@\textcolor{mygreen}{if (p \&\& p->hide\_flag == 1) \{}@*)
+								(*@\textcolor{mygreen}{need\_hide = 1;}@*)
+							(*@\textcolor{mygreen}{\}}@*)
+							(*@\textcolor{mygreen}{rcu\_read\_unlock();}@*)
+						(*@\textcolor{mygreen}{\}}@*)
+					(*@\textcolor{mygreen}{\}}@*)
 
-					if (need_hide) {
-						/* 移除当前项：将后续数据前移覆盖 */
-						int move_size = bytes_read - (bpos + d->d_reclen);
-						memmove(d, (void *)d + d->d_reclen, move_size);
+					(*@\textcolor{mygreen}{if (need\_hide) \{}@*)
+						(*@\textcolor{mygreen}{/* 移除当前项：将后续数据前移覆盖 */}@*)
+						(*@\textcolor{mygreen}{int move\_size = bytes\_read - (bpos + d->d\_reclen);}@*)
+						(*@\textcolor{mygreen}{memmove(d, (void *)d + d->d\_reclen, move\_size);}@*)
 						
-						bytes_read -= d->d_reclen;
-						/* 此时 d 指向了原来的下一项（现已被移过来），continue 重新检查它 */
-						continue;
-					}
+						(*@\textcolor{mygreen}{bytes\_read -= d->d\_reclen;}@*)
+						(*@\textcolor{mygreen}{/* 此时 d 指向了原来的下一项（现已被移过来），}@*)
+						(*@\textcolor{mygreen}{continue 重新检查它 */}@*)
+						(*@\textcolor{mygreen}{continue;}@*)
+					(*@\textcolor{mygreen}{\}}@*)
 
-					bpos += d->d_reclen;
-				}
+					(*@\textcolor{mygreen}{bpos += d->d\_reclen;}@*)
+				(*@\textcolor{mygreen}{\}}@*)
 
-				/* 将过滤后的数据写回用户空间 */
-				if (copy_to_user(dirent, kdirent, bytes_read) == 0) {
-					error = bytes_read;
-				}
-			}
-			kvfree(kdirent);
-		}
-	}
+				(*@\textcolor{mygreen}{/* 将过滤后的数据写回用户空间 */}@*)
+				(*@\textcolor{mygreen}{if (copy\_to\_user(dirent, kdirent, bytes\_read) == 0) \{}@*)
+					(*@\textcolor{mygreen}{error = bytes\_read;}@*)
+				(*@\textcolor{mygreen}{\}}@*)
+			(*@\textcolor{mygreen}{\}}@*)
+			(*@\textcolor{mygreen}{kvfree(kdirent);}@*)
+		(*@\textcolor{mygreen}{\}}@*)
+	(*@\textcolor{mygreen}{\}}@*)
 	return error;
 }
 \end{lstlisting}
@@ -232,7 +203,7 @@ SYSCALL_DEFINE3(getdents64, unsigned int, fd,
 \begin{lstlisting}[firstnumber = 411 , caption = {在\texttt{scripts/syscall.tbl}中注册系统调用号}]
 468	common	file_getattr			sys_file_getattr
 469	common	file_setattr			sys_file_setattr
-470	common	hide				sys_hide
+(*@\textcolor{mygreen}{{470\hspace{3.39em}common\hspace{1.85em}hide\hspace{17.15em}sys\_hide}}@*)
 \end{lstlisting}
 \begin{lstlisting}
 # pacman -S base-devel ncurses bison flex openssl elfutils bc
@@ -297,11 +268,21 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 \end{lstlisting}
-\begin{lstlisting}[caption = {测试\texttt{sys\_hide}}]
+\begin{lstlisting}[
+    caption = {测试\texttt{sys\_hide}},
+    morekeywords={sudo, INVISIBLE, VISIBLE},
+    keywordstyle=\color{mygreen},
+    emph={huhu@huhumiao},
+    emphstyle=\color{myblue}
+]
 huhu@huhumiao ~ % ps
     PID TTY          TIME CMD
     524 pts/0    00:00:00 zsh
     598 pts/0    00:00:00 ps
+huhu@huhumiao ~ % ./hide_tool 524 1
+Command: Make PID 524 INVISIBLE...
+Syscall failed: Operation not permitted
+Error code: 1
 huhu@huhumiao ~ % sudo ./hide_tool 524 1
 Command: Make PID 524 INVISIBLE...
 Success! System call returned 0.
