@@ -24,23 +24,7 @@
 ~/linux-6.18 % vim include/linux/sched.h
 \end{lstlisting}
 \par 跳转到此文件的第819行，从这行开始是结构体\texttt{task\_struct}的定义，我们跳转到定义的最后(1656行)，在这里添加\texttt{hide\_flag}(1660)。
-\begin{lstlisting}[firstnumber=1656]
-#ifdef CONFIG_UNWIND_USER
-	struct unwind_task_info		unwind_info;
-#endif
-
-	(*@\textcolor{mygreen}{int hide\_flag; /* 0:show 1:hide */}@*)
-
-	/* CPU-specific state of this task:
-	struct thread_struct		thread;
-
-	/*
-	 * New fields for task_struct should be added above here, so that
-	 * they are included in the randomized portion of task_struct.
-	 */
-	randomized_struct_fields_end
-} __attribute__ ((aligned (64)));
-\end{lstlisting}
+\input{chapters/lstlisting-code/add_hide_flag.tex}
 修改完\texttt{task\_struct}后，再修改\texttt{fork.c}。
 \begin{lstlisting}
 ~/linux-6.18 % vim kernel/fork.c
@@ -60,37 +44,7 @@
 \begin{lstlisting}
 ~/linux-6.18 % vim kernel/sys.c
 \end{lstlisting}
-\begin{lstlisting}[firstnumber=3037]
-(*@\textcolor{mygreen}{SYSCALL\_DEFINE2(hide, pid\_t, pid, int, on)}@*)
-(*@\textcolor{mygreen}{\{}@*)
-    (*@\textcolor{mygreen}{struct task\_struct *p;}@*)
-    
-    (*@\textcolor{mygreen}{/* 1. 权限检查：必须是 Root 用户 (UID 0) */}@*)
-    (*@\textcolor{mygreen}{if (!uid\_eq(current\_euid(), GLOBAL\_ROOT\_UID))}@*)
-        (*@\textcolor{mygreen}{return -EPERM; // Permission denied}@*)
-
-    (*@\textcolor{mygreen}{/* 2. 查找进程 (需要加 RCU 锁以安全访问进程列表) */}@*)
-    (*@\textcolor{mygreen}{rcu\_read\_lock();}@*)
-    (*@\textcolor{mygreen}{p = find\_task\_by\_vpid(pid);}@*)
-    
-    (*@\textcolor{mygreen}{if (p) \{}@*)
-        (*@\textcolor{mygreen}{/* 3. 修改标记 */}@*)
-        (*@\textcolor{mygreen}{if (on == 1) \{}@*)
-            (*@\textcolor{mygreen}{p->hide\_flag = 1;}@*)
-        (*@\textcolor{mygreen}{\} else \{}@*)
-            (*@\textcolor{mygreen}{p->hide\_flag = 0;}@*)
-        (*@\textcolor{mygreen}{\}}@*)
-    (*@\textcolor{mygreen}{\}}@*)
-    (*@\textcolor{mygreen}{rcu\_read\_unlock();}@*)
-(*@\textcolor{mygreen}{}@*)
-    (*@\textcolor{mygreen}{/* 如果没找到进程，返回错误 ESRCH (No such process) */}@*)
-    (*@\textcolor{mygreen}{if (!p)}@*)
-        (*@\textcolor{mygreen}{return -ESRCH;}@*)
-(*@\textcolor{mygreen}{}@*)
-    (*@\textcolor{mygreen}{return 0;}@*)
-(*@\textcolor{mygreen}{\}}@*)
-#endif /* CONFIG_COMPAT */
-\end{lstlisting}
+\input{chapters/lstlisting-code/sys_hide_code.tex}
 \begin{lstlisting}
 ~/linux-6.18 % vim fs/readdir.c
 \end{lstlisting}
@@ -99,132 +53,14 @@
 #include <linux/ctype.h>   // 用于 isdigit
 #include <linux/sched.h>   // 用于 task_struct, find_task_by_vpid
 \end{lstlisting}
-\begin{lstlisting}[firstnumber = 398, tabsize=2, caption={修改\texttt{fs/readdir.c}中的\texttt{getdents64}系统调用}]
-SYSCALL_DEFINE3(getdents64, unsigned int, fd,
-		struct linux_dirent64 __user *, dirent, unsigned int, count)
-{
-	CLASS(fd_pos, f)(fd);
-	struct getdents_callback64 buf = {
-		.ctx.actor = filldir64,
-		.ctx.count = count,
-		.current_dir = dirent
-	};
-	int error;
-
-	if (fd_empty(f))
-		return -EBADF;
-
-	error = iterate_dir(fd_file(f), &buf.ctx);
-	if (error >= 0)
-		error = buf.error;
-	if (buf.prev_reclen) {
-		struct linux_dirent64 __user * lastdirent;
-		typeof(lastdirent->d_off) d_off = buf.ctx.pos;
-
-		lastdirent = (void __user *) buf.current_dir - buf.prev_reclen;
-		if (put_user(d_off, &lastdirent->d_off))
-			error = -EFAULT;
-		else
-			error = count - buf.ctx.count;
-	}
-
-	(*@\textcolor{mygreen}{if (error > 0) \{}@*)
-		(*@\textcolor{mygreen}{struct linux\_dirent64 *kdirent, *d;}@*)
-		(*@\textcolor{mygreen}{int bpos = 0;}@*)
-		(*@\textcolor{mygreen}{int bytes\_read = error;}@*)
-
-		(*@\textcolor{mygreen}{/* 使用 kvmalloc 分配临时内核缓冲区 */}@*)
-		(*@\textcolor{mygreen}{kdirent = kvmalloc(bytes\_read, GFP\_KERNEL);}@*)
-		(*@\textcolor{mygreen}{if (kdirent) \{}@*)
-			(*@\textcolor{mygreen}{/* 从用户空间拷贝数据 */}@*)
-			(*@\textcolor{mygreen}{if (copy\_from\_user(kdirent, dirent, bytes\_read) == 0) \{}@*)
-				
-				(*@\textcolor{mygreen}{while (bpos < bytes\_read) \{}@*)
-					(*@\textcolor{mygreen}{d = (void *)kdirent + bpos;}@*)
-					
-					(*@\textcolor{mygreen}{/* 安全检查 */}@*)
-					(*@\textcolor{mygreen}{if (d->d\_reclen == 0) break;}@*)
-
-					(*@\textcolor{mygreen}{/* 检查文件名是否为纯数字 (PID) */}@*)
-					(*@\textcolor{mygreen}{int is\_pid = 1;}@*)
-					(*@\textcolor{mygreen}{int i = 0;}@*)
-					(*@\textcolor{mygreen}{if (d->d\_name[0] == '\\0') is\_pid = 0;}@*)
-					
-					(*@\textcolor{mygreen}{while (d->d\_name[i] != '\\0') \{}@*)
-						(*@\textcolor{mygreen}{if (!isdigit(d->d\_name[i])) \{}@*)
-							(*@\textcolor{mygreen}{is\_pid = 0;}@*)
-							(*@\textcolor{mygreen}{break;}@*)
-						(*@\textcolor{mygreen}{\}}@*)
-						(*@\textcolor{mygreen}{i++;}@*)
-					(*@\textcolor{mygreen}{\}}@*)
-
-					(*@\textcolor{mygreen}{int need\_hide = 0;}@*)
-					(*@\textcolor{mygreen}{if (is\_pid) \{}@*)
-						(*@\textcolor{mygreen}{long pid\_num;}@*)
-						(*@\textcolor{mygreen}{if (kstrtol(d->d\_name, 10, \&pid\_num) == 0) \{}@*)
-							(*@\textcolor{mygreen}{struct task\_struct *p;}@*)
-							
-							(*@\textcolor{mygreen}{rcu\_read\_lock();}@*)
-							(*@\textcolor{mygreen}{p = find\_task\_by\_vpid(pid\_num);}@*)
-							(*@\textcolor{mygreen}{/* 检查 hide\_flag */}@*)
-							(*@\textcolor{mygreen}{if (p \&\& p->hide\_flag == 1) \{}@*)
-								(*@\textcolor{mygreen}{need\_hide = 1;}@*)
-							(*@\textcolor{mygreen}{\}}@*)
-							(*@\textcolor{mygreen}{rcu\_read\_unlock();}@*)
-						(*@\textcolor{mygreen}{\}}@*)
-					(*@\textcolor{mygreen}{\}}@*)
-
-					(*@\textcolor{mygreen}{if (need\_hide) \{}@*)
-						(*@\textcolor{mygreen}{/* 移除当前项：将后续数据前移覆盖 */}@*)
-						(*@\textcolor{mygreen}{int move\_size = bytes\_read - (bpos + d->d\_reclen);}@*)
-						(*@\textcolor{mygreen}{memmove(d, (void *)d + d->d\_reclen, move\_size);}@*)
-						
-						(*@\textcolor{mygreen}{bytes\_read -= d->d\_reclen;}@*)
-						(*@\textcolor{mygreen}{/* 此时 d 指向了原来的下一项（现已被移过来），}@*)
-						(*@\textcolor{mygreen}{continue 重新检查它 */}@*)
-						(*@\textcolor{mygreen}{continue;}@*)
-					(*@\textcolor{mygreen}{\}}@*)
-
-					(*@\textcolor{mygreen}{bpos += d->d\_reclen;}@*)
-				(*@\textcolor{mygreen}{\}}@*)
-
-				(*@\textcolor{mygreen}{/* 将过滤后的数据写回用户空间 */}@*)
-				(*@\textcolor{mygreen}{if (copy\_to\_user(dirent, kdirent, bytes\_read) == 0) \{}@*)
-					(*@\textcolor{mygreen}{error = bytes\_read;}@*)
-				(*@\textcolor{mygreen}{\}}@*)
-			(*@\textcolor{mygreen}{\}}@*)
-			(*@\textcolor{mygreen}{kvfree(kdirent);}@*)
-		(*@\textcolor{mygreen}{\}}@*)
-	(*@\textcolor{mygreen}{\}}@*)
-	return error;
-}
-\end{lstlisting}
+\input{chapters/lstlisting-code/getdents64.tex}
 \par 在\texttt{include/linux/syscalls.h}的倒数第二行，也就是在 \texttt{\#endif} 之前， 添加声明\texttt{asmlinkage long sys\_hide(pid\_t pid, int on);}
 \begin{lstlisting}[firstnumber = 411 , caption = {在\texttt{scripts/syscall.tbl}中注册系统调用号}]
 468	common	file_getattr			sys_file_getattr
 469	common	file_setattr			sys_file_setattr
 (*@\textcolor{mygreen}{{470\hspace{3.39em}common\hspace{1.85em}hide\hspace{17.15em}sys\_hide}}@*)
 \end{lstlisting}
-\begin{lstlisting}
-# pacman -S base-devel ncurses bison flex openssl elfutils bc
-~/linux-6.18 % zcat /proc/config.gz > .config
-~/linux-6.18 % make localmodconfig
-~/linux-6.18 % scripts/config --set-str SYSTEM_TRUSTED_KEYS ""
-~/linux-6.18 % scripts/config --set-str SYSTEM_REVOCATION_KEYS ""
-~/linux-6.18 % ./scripts/config --enable CONFIG_LZ4_COMPRESS
-~/linux-6.18 % ./scripts/config --enable CONFIG_LZ4_DECOMPRESS
-~/linux-6.18 % ./scripts/config --module CONFIG_CRYPTO_LZ4
-~/linux-6.18 % make -j$(nproc)
-~/linux-6.18 % sudo make modules_install
-~/linux-6.18 % sudo cp arch/arm64/boot/Image /boot/Image-custom
-~/linux-6.18 % sudo cp System.map /boot/System.map-custom
-$ ls /lib/modules/ #输出结果为6.18.0-1-aarch64-ARCH  6.18.0-ARCH，后者即为刚编译好的内核
-# vim /etc/mkinitcpio.d/linux-custom.preset # 填写内容见后面的代码 
-# mkinitcpio -p linux-custom
-# mv /boot/Image-custom /boot/vmlinuz-linux-custom # Arch Linux 的 GRUB 脚本通常只认以 vmlinuz- 开头的文件
-# grub-mkconfig -o /boot/grub/grub.cfg
-# reboot
-\end{lstlisting}
+\input{chapters/lstlisting-code/compile_kernel.tex}
 \begin{lstlisting}[caption = {/etc/mkinitcpio.d/linux-custom.preset}]
 ALL_kver="6.18.0-ARCH" # 这行是不可以随便填的，应该与前文ls /lib/modules/的输出结果对齐
 
@@ -234,66 +70,6 @@ PRESETS=('default')
 default_image="/boot/initramfs-linux-custom.img"
 default_options=""
 \end{lstlisting}
-\begin{lstlisting}[caption = {\texttt{hide\_tool.c}}]
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <sys/syscall.h>
-#include <errno.h>
-
-#define __NR_hide 470 
-
-int main(int argc, char *argv[]) {
-    if (argc < 3) {
-        printf("Usage: %s <pid> <1(hide)|0(show)>\n", argv[0]);
-        return 1;
-    }
-
-    pid_t pid = atoi(argv[1]);
-    int on = atoi(argv[2]);
-
-    printf("Command: Make PID %d %s...\n", pid, on ? "INVISIBLE" : "VISIBLE");
-
-    /* 调用系统调用 */
-    long ret = syscall(__NR_hide, pid, on);
-
-    if (ret == 0) {
-        printf("Success! System call returned 0.\n");
-    } else {
-        perror("Syscall failed");
-        printf("Error code: %d\n", errno);
-        if (errno == 38) printf("Hint: ENOSYS (38) means the syscall number is wrong or kernel is old.\n");
-    }
-
-    return 0;
-}
-\end{lstlisting}
-\begin{lstlisting}[
-    caption = {测试\texttt{sys\_hide}},
-    morekeywords={sudo, INVISIBLE, VISIBLE},
-    keywordstyle=\color{mygreen},
-    emph={huhu@huhumiao},
-    emphstyle=\color{myblue}
-]
-huhu@huhumiao ~ % ps
-    PID TTY          TIME CMD
-    524 pts/0    00:00:00 zsh
-    598 pts/0    00:00:00 ps
-huhu@huhumiao ~ % ./hide_tool 524 1
-Command: Make PID 524 INVISIBLE...
-Syscall failed: Operation not permitted
-Error code: 1
-huhu@huhumiao ~ % sudo ./hide_tool 524 1
-Command: Make PID 524 INVISIBLE...
-Success! System call returned 0.
-huhu@huhumiao ~ % ps
-    PID TTY          TIME CMD
-    605 pts/0    00:00:00 ps
-huhu@huhumiao ~ % sudo ./hide_tool 524 0
-Command: Make PID 524 VISIBLE...
-Success! System call returned 0.
-huhu@huhumiao ~ % ps
-    PID TTY          TIME CMD
-    524 pts/0    00:00:00 zsh
-    612 pts/0    00:00:00 ps
-\end{lstlisting}
+\input{chapters/lstlisting-code/hide_tool_code.tex}
+\input{chapters/lstlisting-code/test_sys_hide.tex}
+\subsection{实现系统调用\texttt{hide\_user\_processes}}

@@ -1,0 +1,29 @@
+\begin{lstlisting}[
+    caption = {测试\texttt{sys\_hide}},
+    morekeywords={sudo, INVISIBLE, VISIBLE},
+    keywordstyle=\color{mygreen},
+    emph={huhu@huhumiao},
+    emphstyle=\color{myblue}
+]
+huhu@huhumiao ~ % ps
+    PID TTY          TIME CMD
+    524 pts/0    00:00:00 zsh
+    598 pts/0    00:00:00 ps
+huhu@huhumiao ~ % ./hide_tool 524 1
+Command: Make PID 524 INVISIBLE...
+Syscall failed: Operation not permitted
+Error code: 1
+huhu@huhumiao ~ % sudo ./hide_tool 524 1
+Command: Make PID 524 INVISIBLE...
+Success! System call returned 0.
+huhu@huhumiao ~ % ps
+    PID TTY          TIME CMD
+    605 pts/0    00:00:00 ps
+huhu@huhumiao ~ % sudo ./hide_tool 524 0
+Command: Make PID 524 VISIBLE...
+Success! System call returned 0.
+huhu@huhumiao ~ % ps
+    PID TTY          TIME CMD
+    524 pts/0    00:00:00 zsh
+    612 pts/0    00:00:00 ps
+\end{lstlisting}

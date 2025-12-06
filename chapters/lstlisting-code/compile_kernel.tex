@@ -1,0 +1,20 @@
+\begin{lstlisting}
+# pacman -S base-devel ncurses bison flex openssl elfutils bc
+~/linux-6.18 % zcat /proc/config.gz > .config
+~/linux-6.18 % make localmodconfig
+~/linux-6.18 % scripts/config --set-str SYSTEM_TRUSTED_KEYS ""
+~/linux-6.18 % scripts/config --set-str SYSTEM_REVOCATION_KEYS ""
+~/linux-6.18 % ./scripts/config --enable CONFIG_LZ4_COMPRESS
+~/linux-6.18 % ./scripts/config --enable CONFIG_LZ4_DECOMPRESS
+~/linux-6.18 % ./scripts/config --module CONFIG_CRYPTO_LZ4
+~/linux-6.18 % make -j$(nproc)
+~/linux-6.18 % sudo make modules_install
+~/linux-6.18 % sudo cp arch/arm64/boot/Image /boot/Image-custom
+~/linux-6.18 % sudo cp System.map /boot/System.map-custom
+$ ls /lib/modules/ #输出结果为6.18.0-1-aarch64-ARCH  6.18.0-ARCH，后者即为刚编译好的内核
+# vim /etc/mkinitcpio.d/linux-custom.preset # 填写内容见后面的代码 
+# mkinitcpio -p linux-custom
+# mv /boot/Image-custom /boot/vmlinuz-linux-custom # Arch Linux 的 GRUB 脚本通常只认以 vmlinuz- 开头的文件
+# grub-mkconfig -o /boot/grub/grub.cfg
+# reboot
+\end{lstlisting}

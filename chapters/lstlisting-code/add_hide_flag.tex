@@ -1,0 +1,18 @@
+\begin{lstlisting}[firstnumber=1656]
+#ifdef CONFIG_UNWIND_USER
+	struct unwind_task_info		unwind_info;
+#endif
+
+	(*@\textcolor{mygreen}{int hide\_flag; /* 0:show 1:hide */}@*)
+
+	/* CPU-specific state of this task:
+	struct thread_struct		thread;
+
+	/*
+	 * New fields for task_struct should be added above here, so that
+	 * they are included in the randomized portion of task_struct.
+	 */
+	randomized_struct_fields_end
+} __attribute__ ((aligned (64)));
+\end{lstlisting}
+

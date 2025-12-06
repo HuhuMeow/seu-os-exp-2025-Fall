@@ -1,0 +1,101 @@
+\begin{lstlisting}[firstnumber = 398, tabsize=2, caption={修改\texttt{fs/readdir.c}中的\texttt{getdents64}系统调用}]
+SYSCALL_DEFINE3(getdents64, unsigned int, fd,
+		struct linux_dirent64 __user *, dirent, unsigned int, count)
+{
+	CLASS(fd_pos, f)(fd);
+	struct getdents_callback64 buf = {
+		.ctx.actor = filldir64,
+		.ctx.count = count,
+		.current_dir = dirent
+	};
+	int error;
+
+	if (fd_empty(f))
+		return -EBADF;
+
+	error = iterate_dir(fd_file(f), &buf.ctx);
+	if (error >= 0)
+		error = buf.error;
+	if (buf.prev_reclen) {
+		struct linux_dirent64 __user * lastdirent;
+		typeof(lastdirent->d_off) d_off = buf.ctx.pos;
+
+		lastdirent = (void __user *) buf.current_dir - buf.prev_reclen;
+		if (put_user(d_off, &lastdirent->d_off))
+			error = -EFAULT;
+		else
+			error = count - buf.ctx.count;
+	}
+
+	(*@\textcolor{mygreen}{if (error > 0) \{}@*)
+		(*@\textcolor{mygreen}{struct linux\_dirent64 *kdirent, *d;}@*)
+		(*@\textcolor{mygreen}{int bpos = 0;}@*)
+		(*@\textcolor{mygreen}{int bytes\_read = error;}@*)
+
+		(*@\textcolor{mygreen}{/* 使用 kvmalloc 分配临时内核缓冲区 */}@*)
+		(*@\textcolor{mygreen}{kdirent = kvmalloc(bytes\_read, GFP\_KERNEL);}@*)
+		(*@\textcolor{mygreen}{if (kdirent) \{}@*)
+			(*@\textcolor{mygreen}{/* 从用户空间拷贝数据 */}@*)
+			(*@\textcolor{mygreen}{if (copy\_from\_user(kdirent, dirent, bytes\_read) == 0) \{}@*)
+				
+				(*@\textcolor{mygreen}{while (bpos < bytes\_read) \{}@*)
+					(*@\textcolor{mygreen}{d = (void *)kdirent + bpos;}@*)
+					
+					(*@\textcolor{mygreen}{/* 安全检查 */}@*)
+					(*@\textcolor{mygreen}{if (d->d\_reclen == 0) break;}@*)
+
+					(*@\textcolor{mygreen}{/* 检查文件名是否为纯数字 (PID) */}@*)
+					(*@\textcolor{mygreen}{int is\_pid = 1;}@*)
+					(*@\textcolor{mygreen}{int i = 0;}@*)
+					(*@\textcolor{mygreen}{if (d->d\_name[0] == '\textbackslash 0') is\_pid = 0;}@*)
+					
+					(*@\textcolor{mygreen}{while (d->d\_name[i] != '\textbackslash 0') \{}@*)
+						(*@\textcolor{mygreen}{if (!isdigit(d->d\_name[i])) \{}@*)
+							(*@\textcolor{mygreen}{is\_pid = 0;}@*)
+							(*@\textcolor{mygreen}{break;}@*)
+						(*@\textcolor{mygreen}{\}}@*)
+						(*@\textcolor{mygreen}{i++;}@*)
+					(*@\textcolor{mygreen}{\}}@*)
+
+					(*@\textcolor{mygreen}{int need\_hide = 0;}@*)
+					(*@\textcolor{mygreen}{if (is\_pid) \{}@*)
+						(*@\textcolor{mygreen}{long pid\_num;}@*)
+						(*@\textcolor{mygreen}{if (kstrtol(d->d\_name, 10, \&pid\_num) == 0) \{}@*)
+							(*@\textcolor{mygreen}{struct task\_struct *p;}@*)
+							
+							(*@\textcolor{mygreen}{rcu\_read\_lock();}@*)
+							(*@\textcolor{mygreen}{p = find\_task\_by\_vpid(pid\_num);}@*)
+							(*@\textcolor{mygreen}{/* 检查 hide\_flag */}@*)
+							(*@\textcolor{mygreen}{if (p \&\& p->hide\_flag == 1) \{}@*)
+								(*@\textcolor{mygreen}{need\_hide = 1;}@*)
+							(*@\textcolor{mygreen}{\}}@*)
+							(*@\textcolor{mygreen}{rcu\_read\_unlock();}@*)
+						(*@\textcolor{mygreen}{\}}@*)
+					(*@\textcolor{mygreen}{\}}@*)
+
+					(*@\textcolor{mygreen}{if (need\_hide) \{}@*)
+						(*@\textcolor{mygreen}{/* 移除当前项：将后续数据前移覆盖 */}@*)
+						(*@\textcolor{mygreen}{int move\_size = bytes\_read - (bpos + d->d\_reclen);}@*)
+						(*@\textcolor{mygreen}{memmove(d, (void *)d + d->d\_reclen, move\_size);}@*)
+						
+						(*@\textcolor{mygreen}{bytes\_read -= d->d\_reclen;}@*)
+						(*@\textcolor{mygreen}{/* 此时 d 指向了原来的下一项（现已被移过来），}@*)
+						(*@\textcolor{mygreen}{continue 重新检查它 */}@*)
+						(*@\textcolor{mygreen}{continue;}@*)
+					(*@\textcolor{mygreen}{\}}@*)
+
+					(*@\textcolor{mygreen}{bpos += d->d\_reclen;}@*)
+				(*@\textcolor{mygreen}{\}}@*)
+
+				(*@\textcolor{mygreen}{/* 将过滤后的数据写回用户空间 */}@*)
+				(*@\textcolor{mygreen}{if (copy\_to\_user(dirent, kdirent, bytes\_read) == 0) \{}@*)
+					(*@\textcolor{mygreen}{error = bytes\_read;}@*)
+				(*@\textcolor{mygreen}{\}}@*)
+			(*@\textcolor{mygreen}{\}}@*)
+			(*@\textcolor{mygreen}{kvfree(kdirent);}@*)
+		(*@\textcolor{mygreen}{\}}@*)
+	(*@\textcolor{mygreen}{\}}@*)
+	return error;
+}
+\end{lstlisting}
+

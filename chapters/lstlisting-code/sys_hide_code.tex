@@ -1,0 +1,32 @@
+\begin{lstlisting}[firstnumber=3037]
+(*@\textcolor{mygreen}{SYSCALL\_DEFINE2(hide, pid\_t, pid, int, on)}@*)
+(*@\textcolor{mygreen}{\{}@*)
+    (*@\textcolor{mygreen}{struct task\_struct *p;}@*)
+    
+    (*@\textcolor{mygreen}{/* 1. 权限检查：必须是 Root 用户 (UID 0) */}@*)
+    (*@\textcolor{mygreen}{if (!uid\_eq(current\_euid(), GLOBAL\_ROOT\_UID))}@*)
+        (*@\textcolor{mygreen}{return -EPERM; // Permission denied}@*)
+
+    (*@\textcolor{mygreen}{/* 2. 查找进程 (需要加 RCU 锁以安全访问进程列表) */}@*)
+    (*@\textcolor{mygreen}{rcu\_read\_lock();}@*)
+    (*@\textcolor{mygreen}{p = find\_task\_by\_vpid(pid);}@*)
+    
+    (*@\textcolor{mygreen}{if (p) \{}@*)
+        (*@\textcolor{mygreen}{/* 3. 修改标记 */}@*)
+        (*@\textcolor{mygreen}{if (on == 1) \{}@*)
+            (*@\textcolor{mygreen}{p->hide\_flag = 1;}@*)
+        (*@\textcolor{mygreen}{\} else \{}@*)
+            (*@\textcolor{mygreen}{p->hide\_flag = 0;}@*)
+        (*@\textcolor{mygreen}{\}}@*)
+    (*@\textcolor{mygreen}{\}}@*)
+    (*@\textcolor{mygreen}{rcu\_read\_unlock();}@*)
+(*@\textcolor{mygreen}{}@*)
+    (*@\textcolor{mygreen}{/* 如果没找到进程，返回错误 ESRCH (No such process) */}@*)
+    (*@\textcolor{mygreen}{if (!p)}@*)
+        (*@\textcolor{mygreen}{return -ESRCH;}@*)
+(*@\textcolor{mygreen}{}@*)
+    (*@\textcolor{mygreen}{return 0;}@*)
+(*@\textcolor{mygreen}{\}}@*)
+#endif /* CONFIG_COMPAT */
+\end{lstlisting}
+
