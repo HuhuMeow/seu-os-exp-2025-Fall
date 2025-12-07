@@ -986,7 +986,7 @@
         \setcounter { page } { 1 }
         % \seuthesis@CNabstract
         % \seuthesis@ENabstract
-        % \seuthesis@toc
+        \seuthesis@toc
         \pagestyle { mainmatter }
         \setcounter { page } { 1 }
       }

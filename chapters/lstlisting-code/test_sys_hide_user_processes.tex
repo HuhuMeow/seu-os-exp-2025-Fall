@@ -1,0 +1,26 @@
+\begin{lstlisting}[
+    caption = {测试\texttt{sys\_hide\_user\_processes}},
+    morekeywords={sudo, INVISIBLE, VISIBLE},
+    keywordstyle=\color{mygreen},
+    emph={huhu@huhumiao},
+    emphstyle=\color{myblue}
+]
+huhu@huhumiao ~ % id huhu
+uid=1000(huhu) gid=1000(huhu) groups=1000(huhu),998(wheel)
+huhu@huhumiao ~ % id root
+uid=0(root) gid=0(root) groups=0(root)
+huhu@huhumiao ~ % ps
+    PID TTY          TIME CMD
+    520 pts/0    00:00:00 zsh
+    587 pts/0    00:00:00 ps
+huhu@huhumiao ~ % ./hide_user_tool 1000 zsh
+Command: Hide processes named 'zsh' for UID 1000
+Syscall failed: Operation not permitted
+huhu@huhumiao ~ % sudo ./hide_user_tool 1000 zsh
+[sudo] password for huhu:
+Command: Hide processes named 'zsh' for UID 1000
+Success!
+huhu@huhumiao ~ % ps
+    PID TTY          TIME CMD
+    604 pts/0    00:00:00 ps
+\end{lstlisting}

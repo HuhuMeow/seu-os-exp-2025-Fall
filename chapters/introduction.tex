@@ -2,6 +2,9 @@
 %% ------------------
 %% Author: HuhuMeow (Huhu_Miao)
 %% License: MIT
+\newcommand{\sysc}{\texttt{kernel/sys.c}}
+\newcommand{\syscallh}{\texttt{include/linux/syscall.h}}
+\newcommand{\syscalltbl}{\texttt{scripts/syscall.tbl}}
 \section{实验环境简述}
 \par 本次实验采用\texttt{Arch Linux ARM aarch64}，内核版本为{Linux 6.18.0-1-aarch64-ARCH}\footnote{6.18版本的内核在2025年11月30日被确认为LTS版本，会支持到2027年12月。}。虚拟机版本为VMware Fusion 13.6.4。
 \par 我注意到，在\texttt{archinstall}的帮助下，Arch Linux 的安装并不比其他发行版更难。由于 Arch Linux 的轻量化，它在虚拟机中的启动速度也令我满意，这对于需要频繁重启的实验场景友好。出于以上原因，我选择了 Arch Linux 。
@@ -17,8 +20,8 @@
 	\item 在\texttt{/proc}目录下创建一个文件\texttt{/proc/hidden\_process}，该文件的内容包含所有被隐藏进程的\texttt{pid}，各\texttt{pid}之间用空格分开
 \end{enumerate}
 \newpage
-\subsection{实验过程}
-\subsubsection{实现系统调用\texttt{hide}}
+\subsection{实现系统调用\texttt{hide}}
+\par 首先要明确，添加一个系统调用可以分为三个部分：函数实现、添加函数声明、注册系统调用号。其中，添加函数实现需要修改\texttt{kernel/sys.c}，添加函数声明需要修改\texttt{include/linux/syscall.h}，注册系统调用号需要修改\texttt{scripts/syscall.tbl}\footnote{这部分内容与指导手册有较大出入，因为自内核版本6.11开始，ARM架构下注册系统调用号的方式发生了变更，相关内容可以在文档\texttt{Documentation/process/adding-syscalls.rst}中查到}。
 \par 首先，下载内核源码并解压到相应目录。然后修改文件。
 \begin{lstlisting}
 ~/linux-6.18 % vim include/linux/sched.h
@@ -54,7 +57,7 @@
 #include <linux/sched.h>   // 用于 task_struct, find_task_by_vpid
 \end{lstlisting}
 \input{chapters/lstlisting-code/getdents64.tex}
-\par 在\texttt{include/linux/syscalls.h}的倒数第二行，也就是在 \texttt{\#endif} 之前， 添加声明\texttt{asmlinkage long sys\_hide(pid\_t pid, int on);}
+\par 在\texttt{include/linux/syscalls.h}的倒数第二行，也就是在 \texttt{\#endif} 之前， 添加函数声明\texttt{asmlinkage long sys\_hide(pid\_t pid, int on);}
 \begin{lstlisting}[firstnumber = 411 , caption = {在\texttt{scripts/syscall.tbl}中注册系统调用号}]
 468	common	file_getattr			sys_file_getattr
 469	common	file_setattr			sys_file_setattr
@@ -62,7 +65,8 @@
 \end{lstlisting}
 \input{chapters/lstlisting-code/compile_kernel.tex}
 \begin{lstlisting}[caption = {/etc/mkinitcpio.d/linux-custom.preset}]
-ALL_kver="6.18.0-ARCH" # 这行是不可以随便填的，应该与前文ls /lib/modules/的输出结果对齐
+ALL_kver="6.18.0-ARCH" 
+# 上面这行是不可以随便填的，应该与前文ls /lib/modules/的输出结果对齐
 
 PRESETS=('default')
 
@@ -73,3 +77,26 @@ default_options=""
 \input{chapters/lstlisting-code/hide_tool_code.tex}
 \input{chapters/lstlisting-code/test_sys_hide.tex}
 \subsection{实现系统调用\texttt{hide\_user\_processes}}
+\par 在内核6.18中，\texttt{task\_struct} 中有一个指向 \texttt{struct cred}（该结构体定义可见附录代码\ref{cred}） 的指针。在\texttt{cred}结构体中，有字段\texttt{const struct cred \_\_rcu *real\_cred}保存了进程创建者的\texttt{uid}。
+\subsubsection{修改\sysc ，添加函数实现}
+\par 确保\sysc 包含以下头文件，然后在此文件中添加\texttt{hide\_user\_process}的定义。值得指出的是，在 Linux 内核开发中，\textbf{绝对禁止}直接解引用用户态传入的指针。必须用\texttt{copy\_from\_user}、\texttt{strncpy\_from\_user} 或 \texttt{get\_user}等专用函数，将数据从用户空间拷贝到内核栈。
+\begin{lstlisting}
+#include <linux/sched/signal.h> // for_each_process
+#include <linux/string.h>       // strcmp
+#include <linux/uaccess.h>      // strncpy_from_user
+#include <linux/cred.h>         // uid_eq, current_user_ns
+\end{lstlisting}
+\input{chapters/lstlisting-code/hide_user_process_code.tex}
+\subsubsection{修改\syscallh ，添加函数声明}
+\par 添加函数声明\texttt{asmlinkage long sys\_hide\_user\_processes(uid\_t uid, char \_\_user *binname);}
+\subsubsection{修改\syscalltbl，注册系统调用号}
+\begin{lstlisting}
+470	common	hide				sys_hide
+471	common	hide_user_processes		sys_hide_user_processes
+\end{lstlisting}
+\subsubsection{编译并安装新的内核}
+\par 由于我们只修改了\sysc ，并没有对驱动做任何修改，所以只需要编译\texttt{Image}，而后把编译结果拷贝进\texttt{/boot}即可
+\input{chapters/lstlisting-code/compile_kernel2.tex}
+\subsubsection{测试系统调用\texttt{hide\_user\_processes}}
+\input{chapters/lstlisting-code/hide_user_tool.tex}
+\input{chapters/lstlisting-code/test_sys_hide_user_processes.tex}

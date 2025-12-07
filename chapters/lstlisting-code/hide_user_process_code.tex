@@ -1,0 +1,52 @@
+\begin{lstlisting}[caption = {\texttt{hide\_user\_process}}]
+SYSCALL_DEFINE2(hide_user_processes, uid_t, uid, char __user *, binname)
+{
+    struct task_struct *p;
+    char kbinname[TASK_COMM_LEN];
+    /* TASK_COMM_LEN 通常是 16 , 这个常量定义在 include/linux/sched.h */
+    int filter_by_name = 0;
+    long ret;
+    kuid_t target_uid;
+
+    if (!uid_eq(current_euid(), GLOBAL_ROOT_UID)) return -EPERM;
+
+    /* 1. 处理 binname 参数 */
+    if (binname) {
+        /* 从用户空间拷贝字符串到内核空间 */
+        /* strncpy_from_user 返回拷贝的长度，负数表示错误 */
+        ret = strncpy_from_user(kbinname, binname, sizeof(kbinname));
+        if (ret < 0) return -EFAULT;
+        
+        /* 确保字符串以 null 结尾（防止用户传来的字符串过长） */
+        kbinname[sizeof(kbinname) - 1] = '\0';
+        
+        filter_by_name = 1;
+    }
+
+    /* 
+    2. 准备目标 UID 
+    这段代码旨在根据用户当前的上下文判断出全局uid
+    用于处理存在 User Namespace Remap 的边界情况
+    */
+    target_uid = make_kuid(current_user_ns(), uid);
+    if (!uid_valid(target_uid)) return -EINVAL;
+
+    /* 3. 遍历所有进程并标记 */
+    rcu_read_lock(); /* 必须加 RCU 读锁 */
+    
+    for_each_process(p) {
+        /* 检查进程的 UID (使用 real_cred 或者 cred 都可以) */
+        if (uid_eq(p->cred->uid, target_uid)) {
+            if (filter_by_name) {
+                if (strcmp(p->comm, kbinname) == 0) p->hide_flag = 1;
+            } else {
+                p->hide_flag = 1;
+            }
+        }
+    }
+    
+    rcu_read_unlock();
+
+    return 0;
+}
+\end{lstlisting}
