@@ -1,0 +1,73 @@
+\begin{lstlisting}[caption = {\texttt{fs/proc/hidden.c}}]
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
+#include <linux/uaccess.h>
+#include <linux/module.h>
+#include <linux/init.h>
+
+// 引用在 kernel/sys.c 中定义的全局变量
+extern int hidden_flag;
+
+static int hidden_proc_show(struct seq_file *m, void *v)
+{
+    seq_printf(m, "%d\n", hidden_flag);
+    return 0;
+}
+
+static int hidden_proc_open(struct inode *inode, struct file *file)
+{
+    return single_open(file, hidden_proc_show, NULL);
+}
+
+static ssize_t hidden_proc_write(struct file *file, const char __user *buffer,
+                                  size_t count, loff_t *ppos)
+{
+    char buf[32];
+    int value;
+    size_t len;
+
+    len = min(count, sizeof(buf) - 1);
+    
+    if (copy_from_user(buf, buffer, len))
+        return -EFAULT;
+    
+    buf[len] = '\0';
+    
+    if (kstrtoint(buf, 10, &value) != 0)
+        return -EINVAL;
+    
+    if (value != 0 && value != 1)
+        return -EINVAL;
+    
+    hidden_flag = value;
+    
+    pr_info("hidden_flag set to %d\n", hidden_flag);
+    
+    return count;
+}
+
+static const struct proc_ops hidden_proc_ops = {
+    .proc_open    = hidden_proc_open,
+    .proc_read    = seq_read,
+    .proc_write   = hidden_proc_write,
+    .proc_lseek   = seq_lseek,
+    .proc_release = single_release,
+};
+
+static struct proc_dir_entry *hidden_proc_entry;
+
+static int __init hidden_proc_init(void)
+{
+    hidden_proc_entry = proc_create("hidden", 0666, NULL, &hidden_proc_ops);
+    
+    if (!hidden_proc_entry) {
+        pr_err("Failed to create /proc/hidden\n");
+        return -ENOMEM;
+    }
+    
+    pr_info("/proc/hidden created successfully\n");
+    return 0;
+}
+
+fs_initcall(hidden_proc_init);
+\end{lstlisting}

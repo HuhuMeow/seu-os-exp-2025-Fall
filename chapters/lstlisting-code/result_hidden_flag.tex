@@ -1,0 +1,29 @@
+\begin{lstlisting}[
+  caption = {测试\texttt{/proc/hidden}},
+    morekeywords={sudo, INVISIBLE, VISIBLE},
+    keywordstyle=\color{mygreen},
+    emph={huhu@huhumiao},
+    emphstyle=\color{myblue}
+]
+huhu@huhumiao ~ % cat /proc/hidden
+0
+huhu@huhumiao ~ % echo 1 > /proc/hidden
+huhu@huhumiao ~ % cat /proc/hidden
+1
+huhu@huhumiao ~ % ps
+    PID TTY          TIME CMD
+    519 pts/0    00:00:00 zsh
+    554 pts/0    00:00:00 ps
+huhu@huhumiao ~ % sudo ./hide_tool 519 1
+[sudo] password for huhu:
+Command: Make PID 519 INVISIBLE...
+Success! System call returned 0.
+huhu@huhumiao ~ % ps
+    PID TTY          TIME CMD
+    566 pts/0    00:00:00 ps
+huhu@huhumiao ~ % echo 0 > /proc/hidden
+huhu@huhumiao ~ % ps
+    PID TTY          TIME CMD
+    519 pts/0    00:00:00 zsh
+    569 pts/0    00:00:00 ps
+\end{lstlisting}

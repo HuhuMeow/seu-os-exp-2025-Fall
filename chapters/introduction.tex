@@ -16,7 +16,7 @@
 	\item 实现系统调用\texttt{int hide(pid\_t pid, int on)}，在进程\texttt{pid}有效的前提下，如果\texttt{on}置\texttt{1}，进程被隐藏，用户无法通过\texttt{ps}或\texttt{top}观察到进程状态；如果\texttt{on}置\texttt{0}且此前为隐藏状态，则恢复正常状态。
 	\item 考虑权限问题，只有\texttt{root}用户才能隐藏进程。 
 	\item 设计一个新的系统调用\texttt{int hide\_user\_processes(uid\_t uid, char *binname)}，参数\texttt{uid}为用户ID号，当\texttt{binname}参数为\texttt{NULL}时，隐藏该用户的所有进程；否则，隐藏二进制映像名为\texttt{binname}的用户进程。该系统调用应与\texttt{hide}系统调用共存。
-	\item 在\texttt{/proc}目录下创建一个文件\texttt{/proc/hidden}，该文件可读可写，对应一个全局变量\texttt{hidden\_flag}，当\texttt{hidden\_flag}为0时，所有进程都无法隐藏，即便此前进程被\texttt{hide}系统调用要求隐藏。只有当\texttt{hidden\_flag}为1时，此前通过\texttt{hide}调用要求被屏蔽的进程才隐藏起来
+  \item 在\texttt{/proc}目录下创建一个文件\texttt{/proc/hidden}，该文件可读可写，对应一个全局变量\texttt{hidden\_flag}，当\texttt{hidden\_flag}为0时，所有进程都无法隐藏，即便此前进程被\texttt{hide}系统调用要求隐藏。只有当\texttt{hidden\_flag}为1时，此前通过\texttt{hide}调用要求被屏蔽的进程才隐藏起来
 	\item 在\texttt{/proc}目录下创建一个文件\texttt{/proc/hidden\_process}，该文件的内容包含所有被隐藏进程的\texttt{pid}，各\texttt{pid}之间用空格分开
 \end{enumerate}
 \newpage
@@ -100,3 +100,21 @@ default_options=""
 \subsubsection{测试系统调用\texttt{hide\_user\_processes}}
 \input{chapters/lstlisting-code/hide_user_tool.tex}
 \input{chapters/lstlisting-code/test_sys_hide_user_processes.tex}
+\subsection{添加全局变量\texttt{hidden\_flag}}
+\par 在\texttt{fs/readdir.c}中声明外部全局变量\texttt{extern int hidden\_flag}，同时修改\texttt{getdents64}系统调用的逻辑，将我们加入的代码开头的 \texttt{if (error > 0)} 修改为 \texttt{if (error > 0 \&\& hidden\_flag == 1)}
+\par 然后，在\sysc 中添加全局变量\texttt{int hidden\_flag = 0;}, 在文件末尾追加以下代码：
+\input{chapters/lstlisting-code/hidden_flag_code.tex}
+\par 其中\texttt{EXPORT\_SYMBOL}将符号导出到内核符号表，主要用于让模块（.ko）能访问这个符号（运行时链接）。\texttt{extern}声明则是告诉编译器这个变量在其他编译单元中定义。
+\input{chapters/lstlisting-code/hiddenc.tex}
+\par 修改\texttt{fs/proc/Makefile}:
+\begin{lstlisting}
+# fs/proc/Makefile
+# 找到 obj-y 那一行，添加 hidden.o
+obj-y += hidden.o
+\end{lstlisting}
+\begin{lstlisting}
+~/linux-6.18 % make -j$(nproc) Image
+~/linux-6.18 % sudo cp arch/arm64/boot/Image /boot/vmlinuz-linux-custom
+# reboot
+\end{lstlisting}
+\input{chapters/lstlisting-code/result_hidden_flag.tex}
