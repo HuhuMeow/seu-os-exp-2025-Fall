@@ -1,5 +1,22 @@
+\newpage
 \section{shell}
 \begin{quote}
-The shell is an ordinary program that reads commands from the user and executes them. The fact that the shell is a user program, and not part of the kernel, illustrates the power of the system call interface: there is nothing special about the shell. It also means that the shell is easy to replace; as a result, modern Unix systems have a variety of shells to choose from, each with its own user interface and scripting features.
+The shell is an ordinary program that reads commands from the user and executes them. The fact that the shell is a user program, and not part of the kernel, illustrates the power of the system call interface: there is nothing special about the shell. It also means that the shell is easy to replace; as a result, modern Unix systems have a variety of shells to choose from, each with its own user interface and scripting features.\\
+shell 只是一个普通程序,负责读取并执行用户命令。正因为 shell 是用户程序而非内核的一部分,才凸显出系统调用接口的强大——shell 本身并无特殊之处。这也使得 shell 可以轻松替换;现代 Unix 系统正是如此,提供了多种 shell,各自拥有不同的用户界面和脚本功能。
 \par \hfill --xv6: a simple, Unix-like teaching operating system
 \end{quote}
+\subsection{实验内容}
+实现具有\textbf{管道、重定向功能}的\texttt{shell}，能够执行一些简单的基本命令，如进程执行、列目录等
+\subsection{具体要求}
+\begin{itemize}
+  \item 设计一个\texttt{rust}语言程序\footnote{课程原本要求为C语言，但既然我们已经踏上了\texttt{Arch Linux}这条贼船，使用\texttt{rust}也是在情理之中的。}，完成最基本的\texttt{shell}角色：给出命令行提示符、能够逐次接受命令。
+对于命令分成三种
+\begin{itemize}
+  \item 内部命令（例如\texttt{help}命令、\texttt{exit}命令等）
+  \item 外部命令（常见的\texttt{ls}、\texttt{cp}等，以及其他磁盘上的可执行程序\texttt{HelloWorld}等）
+  \item 无效命令（不是上述二种命令）
+\end{itemize}
+\item 具有支持管道的功能，即在\texttt{shell}中输入诸如``\texttt{dir | more}''能够执行\texttt{dir}命令并将其输出通过管道将其输入传送给\texttt{more}。
+\item 具有支持重定向的功能，即在\texttt{shell}中输入诸如``\texttt{dir > direct.txt}''能够执行\texttt{dir}命令并将结果输出到\texttt{direct.txt}
+\item 将上述步骤直接合并完成
+\end{itemize}
