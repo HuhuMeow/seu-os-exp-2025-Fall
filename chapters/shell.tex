@@ -5,6 +5,11 @@ The shell is an ordinary program that reads commands from the user and executes 
 shell 只是一个普通程序,负责读取并执行用户命令。正因为 shell 是用户程序而非内核的一部分,才凸显出系统调用接口的强大——shell 本身并无特殊之处。这也使得 shell 可以轻松替换;现代 Unix 系统正是如此,提供了多种 shell,各自拥有不同的用户界面和脚本功能。
 \par \hfill --xv6: a simple, Unix-like teaching operating system
 \end{quote}
+\begin{quote}
+The shell is a command-line interpreter that prints a prompt, waits for you to type a command line, and then performs the command. If the first word of the command line does not correspond to a built-in shell command, then the shell assumes that it is the name of an executable file that it should load and run.\\
+shell 是一个命令行解释器，它会显示提示符，等待用户输入命令行，然后执行该命令。如果命令行的第一个单词不是内置的 shell 命令，shell 就会将其视为可执行文件的名称，并加载运行该文件。
+\par \hfill --Computer Systems: A Programmer's Perspective
+\end{quote}
 \subsection{实验内容}
 实现具有\textbf{管道、重定向功能}的\texttt{shell}，能够执行一些简单的基本命令，如进程执行、列目录等
 \subsection{具体要求}
@@ -20,3 +25,14 @@ shell 只是一个普通程序,负责读取并执行用户命令。正因为 she
 \item 具有支持重定向的功能，即在\texttt{shell}中输入诸如``\texttt{dir > direct.txt}''能够执行\texttt{dir}命令并将结果输出到\texttt{direct.txt}
 \item 将上述步骤直接合并完成
 \end{itemize}
+\subsection{环境配置}
+在\texttt{Arch Linux}上配置\texttt{rust}开发环境只需两行
+\begin{lstlisting}
+sudo pacman -S rustup
+rustup default stable
+\end{lstlisting}
+可通过以下命令确认是否安装成功：
+\begin{lstlisting}
+rustc --version
+cargo --version
+\end{lstlisting}
