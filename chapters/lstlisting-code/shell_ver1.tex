@@ -1,0 +1,84 @@
+\begin{lstlisting}[caption = {\texttt{main.rs}(ver1)}]
+#[allow(unused_imports)]
+use std::io::{self, Write};
+use std::collections::HashSet;
+use std::env;
+use std::path::Path;
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
+use std::process::Command;
+
+fn main() {
+    let mut cmdline = String::new();
+    let mut ok = true;
+    let builtins: HashSet<&str> = HashSet::from(["exit","echo","type"]);
+    let path = env::var("PATH").unwrap_or_default();
+    let path_dirs: Vec<&str> = path.split(':').collect();
+    let mut glob_exit_code;
+
+    while ok{
+        print!("$ ");
+        io::stdout().flush().unwrap();
+        io::stdin().read_line(&mut cmdline).unwrap();
+        if cmdline.trim().is_empty() {
+            cmdline.clear();
+            continue;
+        }
+        let (cmd, argstr): (&str , &str) = 
+        match cmdline.trim().split_once(' ') {
+            Some((c, args)) => (c, args.trim()),
+            None => (cmdline.trim(), ""),
+        };
+        match cmd{
+            "exit" => ok = false,
+            "echo" => println!("{}",argstr),
+            "type" => {
+                for arg in argstr.split_whitespace() {
+                    if builtins.contains(arg) {
+                        println!("{} is a shell builtin", arg);
+                    }else if let Some(full_path) = 
+                    find_executable(arg, &path_dirs){
+                        println!("{} is {}", arg , full_path);
+                    }else{
+                        println!("{}: not found", arg); 
+                    } 
+                }
+            }
+            _ => {
+                if let Some(full_path) = 
+                find_executable(cmd, &path_dirs){
+                    let status = 
+                    Command::new(cmd)
+                    .args(argstr.split_whitespace())
+                    .status();
+                    match status{
+                        Ok(exit_code) => 
+                        glob_exit_code = exit_code.code().unwrap_or(-1),
+                        Err(e) => 
+                        eprintln!("{}: execution error: {}", cmd, e),
+                    }
+                }else{
+                    println!("{}: command not found", cmd)
+                }
+            }
+        }
+        cmdline.clear();
+    }
+}
+
+fn find_executable(arg: &str , path_dirs : &[&str]) -> Option<String>{
+    for dir in path_dirs {
+        let full_path = format!("{}/{}", dir, arg);
+        let path = Path::new(&full_path);
+        
+        if !path.exists() { continue; }
+        
+        if let Ok(metadata) = fs::metadata(path) {
+            if metadata.permissions().mode() & 0o111 != 0 {
+                return Some(full_path);
+            }
+        }
+    }
+    None
+}
+\end{lstlisting}

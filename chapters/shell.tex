@@ -36,3 +36,13 @@ rustup default stable
 rustc --version
 cargo --version
 \end{lstlisting}
+用\texttt{cargo}创建项目:
+\begin{lstlisting}
+$ cargo new mysh
+$ cd mysh
+\end{lstlisting}
+在\texttt{mysh/src}目录下有一\texttt{main.rs}文件，对于我们的第一个版本的\texttt{shell}，编辑这个文件就可以了。
+\input{chapters/lstlisting-code/shell_ver1.tex}
+\par 这个版本的 \texttt{shell} 能够\textbf{处理内部命令和外部命令}，但受限于简单的查找逻辑，暂时还无法执行磁盘上不在 \texttt{PATH} 路径内的程序（如显式指定相对路径 \texttt{./main}）。 
+\par \texttt{Rust} 的 \texttt{std::process::Command} 封装遮蔽了底层的复杂性：它会自动在 \texttt{PATH} 中搜索程序，并通过 \texttt{posix\_spawn} 或 \texttt{fork/exec} 组合来执行程序。在这个高层抽象下，开发者无需手动管理 \texttt{fork} 后的内存布局，也不必显式处理文件描述符（FD）的继承与关闭。而在 \texttt{C} 语言视角下，这个过程是完全手动的:
+\par 当 \texttt{shell} 决定执行一个外部程序时，它首先调用 \texttt{fork}。此时，子进程完全\textbf{克隆}了父进程（Shell）的 \texttt{task\_struct}，因此继承了完全一致的内存镜像（包含 \texttt{PATH} 变量）和文件描述符表（\texttt{files\_struct}）。 \par 随后，子进程调用 \texttt{exec} 系统调用（如 \texttt{execve}）。\texttt{exec} 会彻底销毁子进程原有的用户内存空间（栈、堆、代码段）。这意味着原有的 \texttt{PATH} 变量也会随之消失。因此，\texttt{shell} 必须在调用 \texttt{execve} 时，将 \texttt{PATH} 等环境变量作为参数（\texttt{envp}）显式\textbf{传递}给内核。内核会将这些数据搬运到新程序的栈顶。 与内存不同，内核默认\textbf{保留}子进程的文件描述符表（除非设置了 \texttt{FD\_CLOEXEC}）。这一特性至关重要：它允许 \texttt{shell} 在 \texttt{exec} 之前通过 \texttt{dup2} 调整标准输入输出指向（重定向），而新程序在完全不知情的情况下，自然继承这些指向文件或管道的文件描述符 ，从而实现 \texttt{I/O} 流的无缝衔接。
