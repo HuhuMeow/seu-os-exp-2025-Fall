@@ -2,12 +2,12 @@
 \section{shell}
 \begin{quote}
 The shell is an ordinary program that reads commands from the user and executes them. The fact that the shell is a user program, and not part of the kernel, illustrates the power of the system call interface: there is nothing special about the shell. It also means that the shell is easy to replace; as a result, modern Unix systems have a variety of shells to choose from, each with its own user interface and scripting features.\\
-shell 只是一个普通程序,负责读取并执行用户命令。正因为 shell 是用户程序而非内核的一部分,才凸显出系统调用接口的强大——shell 本身并无特殊之处。这也使得 shell 可以轻松替换;现代 Unix 系统正是如此,提供了多种 shell,各自拥有不同的用户界面和脚本功能。
+  \kaishu {shell 只是一个普通程序,负责读取并执行用户命令。正因为 shell 是用户程序而非内核的一部分,才凸显出系统调用接口的强大——shell 本身并无特殊之处。这也使得 shell 可以轻松替换;现代 Unix 系统正是如此,提供了多种 shell,各自拥有不同的用户界面和脚本功能。}
 \par \hfill --xv6: a simple, Unix-like teaching operating system
 \end{quote}
 \begin{quote}
 The shell is a command-line interpreter that prints a prompt, waits for you to type a command line, and then performs the command. If the first word of the command line does not correspond to a built-in shell command, then the shell assumes that it is the name of an executable file that it should load and run.\\
-shell 是一个命令行解释器，它会显示提示符，等待用户输入命令行，然后执行该命令。如果命令行的第一个单词不是内置的 shell 命令，shell 就会将其视为可执行文件的名称，并加载运行该文件。
+  \kaishu{shell 是一个命令行解释器，它会显示提示符，等待用户输入命令行，然后执行该命令。如果命令行的第一个单词不是内置的 shell 命令，shell 就会将其视为可执行文件的名称，并加载运行该文件。}
 \par \hfill --Computer Systems: A Programmer's Perspective
 \end{quote}
 \subsection{实验内容}
@@ -30,6 +30,7 @@ shell 是一个命令行解释器，它会显示提示符，等待用户输入�
 \begin{lstlisting}
 sudo pacman -S rustup
 rustup default stable
+rustup component add rust-analyzer
 \end{lstlisting}
 可通过以下命令确认是否安装成功：
 \begin{lstlisting}
@@ -41,8 +42,23 @@ cargo --version
 $ cargo new mysh
 $ cd mysh
 \end{lstlisting}
+\subsection{实现基础功能}
 在\texttt{mysh/src}目录下有一\texttt{main.rs}文件，对于我们的第一个版本的\texttt{shell}，编辑这个文件就可以了。
 \input{chapters/lstlisting-code/shell_ver1.tex}
 \par 这个版本的 \texttt{shell} 能够\textbf{处理内部命令和外部命令}，但受限于简单的查找逻辑，暂时还无法执行磁盘上不在 \texttt{PATH} 路径内的程序（如显式指定相对路径 \texttt{./main}）。 
 \par \texttt{Rust} 的 \texttt{std::process::Command} 封装遮蔽了底层的复杂性：它会自动在 \texttt{PATH} 中搜索程序，并通过 \texttt{posix\_spawn} 或 \texttt{fork/exec} 组合来执行程序。在这个高层抽象下，开发者无需手动管理 \texttt{fork} 后的内存布局，也不必显式处理文件描述符（FD）的继承与关闭。而在 \texttt{C} 语言视角下，这个过程是完全手动的:
 \par 当 \texttt{shell} 决定执行一个外部程序时，它首先调用 \texttt{fork}。此时，子进程完全\textbf{克隆}了父进程（Shell）的 \texttt{task\_struct}，因此继承了完全一致的内存镜像（包含 \texttt{PATH} 变量）和文件描述符表（\texttt{files\_struct}）。 \par 随后，子进程调用 \texttt{exec} 系统调用（如 \texttt{execve}）。\texttt{exec} 会彻底销毁子进程原有的用户内存空间（栈、堆、代码段）。这意味着原有的 \texttt{PATH} 变量也会随之消失。因此，\texttt{shell} 必须在调用 \texttt{execve} 时，将 \texttt{PATH} 等环境变量作为参数（\texttt{envp}）显式\textbf{传递}给内核。内核会将这些数据搬运到新程序的栈顶。 与内存不同，内核默认\textbf{保留}子进程的文件描述符表（除非设置了 \texttt{FD\_CLOEXEC}）。这一特性至关重要：它允许 \texttt{shell} 在 \texttt{exec} 之前通过 \texttt{dup2} 调整标准输入输出指向（重定向），而新程序在完全不知情的情况下，自然继承这些指向文件或管道的文件描述符 ，从而实现 \texttt{I/O} 流的无缝衔接。
+\subsection{重定向}
+\par 在\texttt{Linux}中，每个进程都会预留3个默认的\texttt{fd}(file descriptor): \texttt{stdin}、\texttt{stdout}、\texttt{stderr};它们的值分别是0、1，2。在这一节，我们对代码进行了调整，仍然只有一个 \texttt{main.rs} 文件。\footnote{在下一节，我不得不重构本节的代码来实现下一节的需求。如果您在参考这份实验报告的话，推荐您先实现管道，再实现本节的重定向。若您期望直接参考成品，则第三节的代码为最终版本，不需要参考本节代码。}
+\par 重定向所涉及到的关键字有六个，可分为四类。关键字分别为 \texttt{>} , \texttt{1>} , \texttt{>>} , \texttt{1>>} , \texttt{2>} , \texttt{2>>} . 其中，如果没有数字作为前缀，默认重定向\texttt{stdout}到文件，如果有的话，数字1代表重定向\texttt{stdout}, 数字2代表重定向\texttt{stderr}。符号 > 代表截断(Truncation)操作，即先清空文件，再写入；符号 \texttt{>>} 代表追加(Append)操作，在原文件的基础上继续写入。比如，\texttt{1>>} 代表重定向 \texttt{stdout} 到文件，将程序的输出\textbf{追加}到该文件后；\texttt{2>} 代表重定向 \texttt{stderr} 到文件，\textbf{清空}此文件（截断），然后再将输出写入此文件。
+\par 在\texttt{rust}中，对程序进行重定向是简单的，不需要直接操纵文件描述符。在C语言中，则需要用\texttt{dup2}将文件描述符1或者2指向我们期望的文件。
+\par 下面这个版本的\texttt{shell}在支持重定向的基础上，添加了对非\texttt{PATH}中程序的支持。可以通过绝对路径或者相对路径运行程序。
+\input{chapters/lstlisting-code/shell_ver2.tex}
+\subsection{管道}
+\par 管道将串联多个命令的输入与输出，本质上与上一节的重定向并无区别。在解析命令时，我们的\texttt{shell}会先根据\texttt{|}符号将用户的输入分解为多段命令，对于第一个命令，我们重定向它的输出，但不会重定向它的输入\footnote{用户有把磁盘上文件输入进程序的需求，所以理论上应该支持重定向这个程序的输入部分，但为了保持我们的代码的简洁并照顾我的懒惰，我们的\texttt{shell}暂不支持这个功能。}; 对于最后一个命令，我们重定向它的输入，并检查是否有上一节提到的重定向操作符。
+\par 前两个版本的\texttt{shell}代码不适合一次执行多条指令，因此对代码进行重构。
+\input{chapters/lstlisting-code/shell_ver3.tex}
+\subsection{局限}
+\par 该\texttt{shell}仅仅是课程作业，一个像样的\texttt{shell}至少会支持自动补全、历史记录、切换目录等功能，更不必说\texttt{zsh}和\texttt{bash}这些庞然大物所支持的通配符、脚本语法、极强兼容性等外星科技。对于本\texttt{shell}已经实现的管道和重定向功能也是不完善的，如果您认真拆解了代码的话， 就会发现， 对于 \texttt{echo 1 | wc} 这种命令，我们的\texttt{shell}调用的并不是\texttt{builtin}命令，而是\texttt{PATH}中的后备隐藏能源。我们的\texttt{shell}也不支持重定向命令的输入。
+\par 从代码实现顺序上来看，我们应该先实现管道，再实现重定向。这样是比较符合运算符优先级的，因为重定向一般出现在开头或者最后。
+\par 尽管我们的\texttt{shell}有诸多的局限，但对于课程作业而言已经足够。我们有效掌握了利用\texttt{rust}解析路径，创建子进程，对进程重定向的技巧。

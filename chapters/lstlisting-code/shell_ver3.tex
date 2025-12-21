@@ -1,0 +1,402 @@
+\begin{lstlisting}[caption = {\texttt{main.rs}(ver3)}]
+#[allow(unused_imports)]
+use std::io::{self, Write};
+use std::collections::HashSet;
+use std::env;
+use std::path::Path;
+use std::fs;
+use std::fs::File;
+use std::os::unix::fs::PermissionsExt;
+use std::process::{Command, Stdio};
+
+#[derive(PartialEq, Clone)]
+enum RedirectKind {
+    StdoutAppend,
+    StderrAppend,
+    StdoutTruncate,
+    StderrTruncate,
+}
+
+struct ShellContext {
+    builtins: HashSet<&'static str>,
+    path_dirs: Vec<String>,
+}
+
+fn main() {
+    let mut cmdline = String::new();
+    let path = env::var("PATH").unwrap_or_default();
+    let path_dirs: Vec<String> = 
+    path.split(':').map(|s| s.to_string()).collect();
+    
+    let context = ShellContext {
+        builtins: HashSet::from(["exit", "echo", "type"]),
+        path_dirs,
+    };
+
+    loop {
+        print!("$ ");
+        io::stdout().flush().unwrap();
+        
+        cmdline.clear();
+        io::stdin().read_line(&mut cmdline).unwrap();
+
+        if cmdline.trim().is_empty() { continue; }
+        
+        if !execute_command_line(cmdline.trim(), &context) { 
+            break; 
+        }
+    }
+}
+
+fn execute_command_line(cmdline: &str, context: &ShellContext) -> bool {
+    if cmdline.contains('|') {
+        let commands = parse_pipeline(cmdline);
+        if let Err(e) = execute_pipeline(&commands, context) { 
+            eprintln!("Pipeline error: {}", e); 
+            }
+        return true;
+    }
+
+    let (command_line, redirect_info) = parse_redirection(cmdline);
+    
+    let (cmd, argstr) = match command_line.trim().split_once(' ') {
+        Some((c, args)) => (c, args.trim()),
+        None => (command_line.trim(), ""),
+    };
+
+    if context.builtins.contains(cmd) { 
+        return execute_builtin(cmd, 
+        argstr, redirect_info.as_ref(), 
+        context); 
+    }
+    execute_external_command(cmd, 
+    argstr, redirect_info.as_ref(), 
+    context);
+
+    true
+}
+
+
+fn execute_builtin(
+    cmd: &str,
+    argstr: &str,
+    redirect_info: Option<&(String, RedirectKind)>,
+    context: &ShellContext,
+) -> bool {
+    match cmd {
+        "exit" => false,
+        "echo" => {
+            builtin_echo(argstr, redirect_info);
+            true
+        }
+        "type" => {
+            builtin_type(argstr, context);
+            true
+        }
+        _ => unreachable!("Unknown builtin command"),
+    }
+}
+
+fn builtin_echo(
+argstr: &str, 
+redirect_info: Option<&(String, RedirectKind)>
+) {
+    let output: String = 
+    argstr.chars()
+    .filter(|&c| c != '\"' && c != '\'')
+    .collect();
+    
+    if let Some((file_path, kind)) 
+    = redirect_info {
+        match open_redirect_file(file_path, kind) {
+            Ok(mut file) => {
+                if *kind == 
+                RedirectKind::StderrAppend || 
+                *kind == RedirectKind::StderrTruncate {
+                    println!("{}", output);
+                } else if let Err(e) = writeln!(file, "{}", output) {
+                    eprintln!("Error writing to file: {}", e);
+                }
+            }
+            Err(e) => { 
+                eprintln!("Error opening file {}: {}", 
+                file_path, e); 
+            }
+        }
+    } else { println!("{}", output); }
+}
+
+fn builtin_type(argstr: &str, context: &ShellContext) {
+    for arg in argstr.split_whitespace() {
+        if context.builtins.contains(arg) {
+            println!("{} is a shell builtin", arg);
+        } else if let Some(full_path) 
+        = find_executable(arg, &context.path_dirs) {
+            println!("{} is {}", arg, full_path);
+        } else {
+            println!("{}: not found", arg);
+        }
+    }
+}
+
+fn execute_external_command(
+    cmd: &str,
+    argstr: &str,
+    redirect_info: Option<&(String, RedirectKind)>,
+    context: &ShellContext,
+) {
+    let full_path = 
+    resolve_command_path(cmd, &context.path_dirs);
+
+    match full_path {
+        Some(path) => { 
+            run_external_command(&path, 
+            argstr, 
+            redirect_info); 
+        }
+        None => { 
+            let error_msg = format!("{}: command not found", cmd);
+            println!("{}", error_msg);
+        }
+    }
+}
+
+fn run_external_command(
+    full_path: &str,
+    argstr: &str,
+    redirect_info: Option<&(String, RedirectKind)>,
+) {
+    let mut command = Command::new(full_path);
+    command.args(argstr.split_whitespace());
+
+    if let Some((file_path, kind)) = redirect_info {
+        match open_redirect_file(file_path, kind) {
+            Ok(file) => {
+                match kind {
+                    RedirectKind::StderrTruncate | 
+                    RedirectKind::StderrAppend => {
+                        command.stderr(Stdio::from(file));
+                    }
+                    RedirectKind::StdoutTruncate | 
+                    RedirectKind::StdoutAppend => {
+                        command.stdout(Stdio::from(file));
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "Error opening file {}: {}", 
+                    file_path, 
+                    e);
+                return;
+            }
+        }
+    }
+
+    match command.status() {
+        Ok(_exit_status) => {}
+        Err(e) => { eprintln!("Execution error: {}", e);}
+    }
+}
+
+fn resolve_command_path(cmd: &str, path_dirs: &[String])
+-> Option<String> {
+    if cmd.contains('/') || cmd.contains('\\') {
+        check_executable_path(cmd)
+    } else {
+        find_executable(cmd, path_dirs)
+    }
+}
+
+fn check_executable_path(path_str: &str) 
+-> Option<String> {
+    let path = Path::new(path_str);
+    if !path.exists() {
+        return None;
+    }
+
+    if let Ok(metadata) = fs::metadata(path) {
+        if metadata.permissions().mode() & 0o111 != 0 {
+            return Some(path_str.to_string());
+        }
+    }
+
+    None
+}
+
+fn find_executable(arg: &str, path_dirs: &[String]) 
+-> Option<String> {
+    for dir in path_dirs {
+        let full_path = format!("{}/{}", dir, arg);
+        let path = Path::new(&full_path);
+
+        if !path.exists() {
+            continue;
+        }
+
+        if let Ok(metadata) = fs::metadata(path) {
+            if metadata.permissions().mode() & 0o111 != 0 {
+                return Some(full_path);
+            }
+        }
+    }
+    None
+}
+
+
+fn parse_redirection(input: &str) 
+-> (String, Option<(String, RedirectKind)>) {
+    let redirect_patterns = [
+        (" 2>> ", RedirectKind::StderrAppend),
+        (" 1>> ", RedirectKind::StdoutAppend),
+        (" >> ", RedirectKind::StdoutAppend),
+        (" 2> ", RedirectKind::StderrTruncate),
+        (" 1> ", RedirectKind::StdoutTruncate),
+        (" > ", RedirectKind::StdoutTruncate),
+    ];
+
+    for (pattern, kind) in redirect_patterns {
+        if let Some(pos) = input.find(pattern) {
+            let cmd_part = input[..pos].trim().to_string();
+            let file_part = 
+            input[pos + pattern.len()..].trim().to_string();
+            return (cmd_part, Some((file_part, kind)));
+        }
+    }
+
+    (input.to_string(), None)
+}
+
+fn open_redirect_file(path: &str, kind: &RedirectKind) 
+-> io::Result<File> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true);
+
+    match kind {
+        RedirectKind::StdoutTruncate | RedirectKind::StderrTruncate => {
+            options.truncate(true);
+        }
+        RedirectKind::StdoutAppend | RedirectKind::StderrAppend => {
+            options.append(true);
+        }
+    }
+
+    options.open(path)
+}
+
+fn parse_pipeline(input: &str) -> Vec<String> {
+    input
+        .split('|')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+fn execute_pipeline(commands: &[String], context: &ShellContext) 
+-> io::Result<()> {
+    if commands.is_empty() { return Ok(()); }
+
+    if commands.len() == 1 { 
+        return execute_single_command(&commands[0], context);
+    }
+
+    let mut previous_stdout: Option<std::process::ChildStdout> = None;
+    let mut children = Vec::new();
+
+    for (i, cmd_str) in commands.iter().enumerate() {
+        let (cmd_str, redirect_info) = if i == commands.len() - 1 {
+            parse_redirection(cmd_str)
+        } else {
+            (cmd_str.to_string(), None)
+        };
+
+        let parts: Vec<&str> = cmd_str.split_whitespace().collect();
+        if parts.is_empty() { continue; }
+
+        let cmd = parts[0];
+        let args = &parts[1..];
+
+        let full_path = resolve_command_path(cmd, &context.path_dirs);
+
+        let Some(full_path) = full_path else {
+            eprintln!("{}: command not found", cmd);
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "command not found",
+            ));
+        };
+
+        let mut command = Command::new(full_path);
+        command.args(args);
+
+        if let Some(prev_stdout) 
+        = previous_stdout.take() { command.stdin(prev_stdout);}
+
+        if i == commands.len() - 1 {
+            if let Some((file_path, kind)) = redirect_info {
+                match open_redirect_file(&file_path, &kind) {
+                    Ok(file) => match kind {
+                        RedirectKind::StderrTruncate 
+                        | RedirectKind::StderrAppend => {
+                            command.stderr(Stdio::from(file));
+                        }
+                        RedirectKind::StdoutTruncate 
+                        | RedirectKind::StdoutAppend => {
+                            command.stdout(Stdio::from(file));
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!(
+                        "Error opening file {}: {}", file_path, e
+                        );
+                        return Err(e);
+                    }
+                }
+            }
+        } else {
+            command.stdout(Stdio::piped());
+        }
+
+        let mut child = command.spawn()?;
+
+        if i < commands.len() - 1 {
+            previous_stdout = child.stdout.take();
+        }
+
+        children.push(child);
+    }
+
+    for mut child in children {
+        child.wait()?;
+    }
+
+    Ok(())
+}
+
+fn execute_single_command(cmd_str: &str, context: &ShellContext) 
+-> io::Result<()> {
+    let parts: Vec<&str> = cmd_str.split_whitespace().collect();
+    if parts.is_empty() {
+        return Ok(());
+    }
+
+    let cmd = parts[0];
+    let args = &parts[1..];
+
+    let full_path =
+    resolve_command_path(cmd, &context.path_dirs);
+
+    let Some(full_path) = full_path else {
+        eprintln!("{}: command not found", cmd);
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "command not found",
+        ));
+    };
+
+    Command::new(full_path).args(args).status()?;
+
+    Ok(())
+}
+
+\end{lstlisting}

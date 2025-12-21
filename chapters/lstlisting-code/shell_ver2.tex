@@ -1,0 +1,228 @@
+\begin{lstlisting}[caption = {\texttt{main.rs}(ver2)}]
+#[allow(unused_imports)]
+use std::io::{self, Write};
+use std::collections::HashSet;
+use std::env;
+use std::path::Path;
+use std::fs;
+use std::fs::File;
+use std::os::unix::fs::PermissionsExt;
+use std::process::{Command,Stdio};
+
+#[derive(PartialEq)]
+enum RedirectKind {
+    StdoutAppend,
+    StderrAppend,
+    StdoutTruncate,
+    StderrTruncate,
+}
+
+fn main() {
+    let mut cmdline = String::new();
+    let mut ok = true;
+    let builtins: HashSet<&str> = HashSet::from(["exit","echo","type"]);
+    let path = env::var("PATH").unwrap_or_default();
+    let path_dirs: Vec<&str> = path.split(':').collect();
+    let mut glob_exit_code;
+
+    while ok{
+        print!("$ ");
+        io::stdout().flush().unwrap();
+        io::stdin().read_line(&mut cmdline).unwrap();
+        if cmdline.trim().is_empty() {
+            cmdline.clear();
+            continue;
+        }
+
+        let (command_line, redirect_info) = 
+        parse_redirection(cmdline.trim());
+
+        let (cmd, argstr): (&str , &str) = 
+        match command_line.trim().split_once(' ') {
+            Some((c, args)) => (c, args.trim()),
+            None => (command_line.trim(), ""),
+        };
+
+        match cmd{
+            "exit" => ok = false,
+            "echo" => {
+                let argstr : String = 
+                argstr.chars()
+                .filter(|&c| c != '\"' && c != '\'')
+                .collect();
+                if let Some((ref file_path , ref kind)) = redirect_info{
+                    let mut options = std::fs::OpenOptions::new();
+                    options.write(true).create(true);
+                    match *kind{
+                        RedirectKind::StdoutTruncate | 
+                        RedirectKind::StderrTruncate => 
+                        {options.truncate(true);}
+                        RedirectKind::StdoutAppend | 
+                        RedirectKind::StderrAppend => 
+                        {options.append(true);}
+                    }
+                    match options.open(file_path) {
+                        Ok(mut file) => {
+                            if *kind == RedirectKind::StderrAppend 
+                            || *kind == RedirectKind::StderrTruncate {
+                                println!("{}", argstr);
+                            }else if let Err(e) 
+                            = writeln!(file, "{}", argstr) {
+                                eprintln!("Error writing to file: {}", e);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Error opening file {}: {}", file_path, e);
+                            cmdline.clear();
+                            continue;
+                        }
+                    }
+                }else{
+                    println!("{}", argstr);
+                }
+            }
+            "type" => {
+                for arg in argstr.split_whitespace() {
+                    if builtins.contains(arg) {
+                        println!("{} is a shell builtin", arg);
+                    }else if let Some(full_path) 
+                    = find_executable(arg, &path_dirs){
+                        println!("{} is {}", arg , full_path);
+                    }else{
+                        println!("{}: not found", arg); 
+                    } 
+                }
+            }
+            _ => {
+                let full_path 
+                = if cmd.contains('/') || cmd.contains('\\') {
+                    check_executable_path(cmd)
+                } else {
+                    find_executable(cmd, &path_dirs)
+                };
+
+                if let Some(full_path) = full_path{
+                    let mut command = Command::new(full_path);
+                    command.args(argstr.split_whitespace());
+
+                    if let Some((ref file_path , ref kind)) 
+                    = redirect_info{
+                        let mut options = std::fs::OpenOptions::new();
+                        options.write(true).create(true);
+                        match *kind{
+                            RedirectKind::StdoutTruncate 
+                            | RedirectKind::StderrTruncate 
+                            => {options.truncate(true);}
+                            RedirectKind::StdoutAppend 
+                            | RedirectKind::StderrAppend 
+                            => {options.append(true);}
+                        }
+
+                        match options.open(file_path){
+                            Ok(file) => { 
+                                match *kind{
+                                    RedirectKind::StderrTruncate 
+                                    | RedirectKind::StderrAppend 
+                                    => {command.stderr(Stdio::from(file));}
+                                    RedirectKind::StdoutTruncate 
+                                    | RedirectKind::StdoutAppend 
+                                    => {command.stdout(Stdio::from(file));}
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!(
+                                "Error creating file {}: {}",
+                                file_path,
+                                e
+                                );
+                                cmdline.clear();
+                                continue;
+                            }
+                        }
+                    }
+                    match command.status() {
+                        Ok(exit_code) => 
+                        glob_exit_code = exit_code.code().unwrap_or(-1),
+                        Err(e) => 
+                        eprintln!("{}: execution error: {}", cmd, e),
+                    }
+                } else {
+                    let error_msg = format!("{}: command not found", cmd);
+                    if let Some((ref file_path, 
+                    RedirectKind::StderrTruncate)) = 
+                    redirect_info {
+                        write_to_file(file_path, &error_msg);
+                    } else {
+                        println!("{}", error_msg);
+                    }
+                }
+            }
+        }
+        cmdline.clear();
+    }
+}
+
+fn check_executable_path(path_str: &str) -> Option<String> {
+    let path = Path::new(path_str);
+    if !path.exists() { return None; }
+
+    if let Ok(metadata) = fs::metadata(path) {
+        if metadata.permissions().mode() & 0o111 != 0 {
+            return Some(path_str.to_string());
+        }
+    }
+    
+    None
+}
+
+fn find_executable(arg: &str , path_dirs : &[&str]) -> Option<String>{
+    for dir in path_dirs {
+        let full_path = format!("{}/{}", dir, arg);
+        let path = Path::new(&full_path);
+        
+        if !path.exists() { continue; }
+        
+        if let Ok(metadata) = fs::metadata(path) {
+            if metadata.permissions().mode() & 0o111 != 0 {
+                return Some(full_path);
+            }
+        }
+    }
+    None
+}
+
+fn parse_redirection(input: &str) 
+-> (String, Option<(String, RedirectKind)>) {
+    let redirect_patterns = [
+        (" 2> ", RedirectKind::StderrTruncate),
+        (" 1> ", RedirectKind::StdoutTruncate),
+        (" > ", RedirectKind::StdoutTruncate),
+        (" >> ", RedirectKind::StdoutAppend),
+        (" 1>> ", RedirectKind::StdoutAppend),
+        (" 2>> ", RedirectKind::StderrAppend),
+    ];
+
+    for (pattern, kind) in redirect_patterns {
+        if let Some(pos) = input.find(pattern) {
+            let cmd_part = input[..pos].trim().to_string();
+            let file_part = 
+            input[pos + pattern.len()..].trim().to_string();
+            return (cmd_part, Some((file_part, kind)));
+        }
+    }
+
+    (input.to_string(), None)
+}
+
+fn write_to_file(path: &str, content: &str) {
+    match File::create(path) {
+        Ok(mut file) => {
+            if let Err(e) = writeln!(file, "{}", content) {
+                eprintln!("Error writing to file: {}", e);
+            }
+        }
+        Err(e) => eprintln!("Error creating file {}: {}", path, e),
+    }
+}
+
+\end{lstlisting}
