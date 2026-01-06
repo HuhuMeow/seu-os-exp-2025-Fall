@@ -17,7 +17,7 @@ This repository contains my experimental reports and part of the source code for
 
 这门课程的指导手册基于较旧的 Linux 2.6.21.7 内核，很多方法已不再适用。本人在 **Linux 6.18** 内核及 **ARM 架构**下重新进行了实验，并将实验报告撰写的尽可能详细，希望能为同学们提供参考和帮助。
 
-如果您发现了报告中的错误，或在您的环境下验证了实验流程的有效性，欢迎通过邮件与我联系，也欢迎直接提交 Pull Request。
+若您发现了报告中的错误，或验证了实验流程的有效性，欢迎通过邮件与我联系，或直接提交 Pull Request。
 
 ## 用法
 
