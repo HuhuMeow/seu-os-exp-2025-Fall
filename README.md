@@ -27,26 +27,26 @@ This repository contains my experimental reports and part of the source code for
 
 ```
 .
-├── code
-│   ├── fs
-│   ├── sh
-│   └── utilities
-├── doc
-│   ├── assets
-│   ├── chapters
-│   ├── fonts
-│   ├── img
-│   ├── main.tex
+├── code			# 部分源码
+│   ├── fs				# 第三个实验
+│   ├── sh				# 第二个实验
+│   └── utilities	# 第一个实验
+├── doc				# 在此目录下执行 make 即可编译，执行 make clean 清除临时文件
+│   ├── assets		# 模板需要，不建议删
+│   ├── chapters	# 实验报告正文
+│   ├── fonts			# 模板需要，不建议删
+│   ├── img				# 实验报告插图
+│   ├── main.tex	
 │   ├── makefile
-│   ├── ref
-│   └── temp.cls
+│   ├── ref				# 模板需要，不建议删
+│   └── temp.cls	# 模板
 ├── LICENSE
 └── README.md
 ```
 
 - `code` 文件夹下是可能会用到的代码文件。虽然所有的源码都可以在文档中找到，但如果您有快速复现实验的需求，可以直接在 `code` 文件夹下找到代码文件。`utilities` 文件夹对应第一个实验，`sh` 和 `fs` 对应第二个和第三个。
 - 在修改内核代码时，您可能仍需要参考文档。不建议您直接从文档中复制代码，因为文档中的代码可能包含预期之外的空格和换行，在拷贝文档中代码时请再三检查。
-- `doc` 文件夹下是实验报告的 LaTeX 源码，如何编译请见下节。如果您有编辑实验报告的需求，只需要修改 `chapters` 文件夹、`img`文件夹和 `main.tex` 文件中的内容。理论上，`assets` 文件夹、`fonts` 文件夹和 `ref` 文件夹都是非必要的，但除非您清楚自己在做什么，不建议去掉这三个文件夹。
+- `doc` 文件夹下是实验报告的 LaTeX 源码，如何编译请见下节。如果您有编辑实验报告的需求，只需要修改 `chapters` 文件夹、`img`文件夹和 `main.tex` 文件中的内容。理论上，`assets` 文件夹、`fonts` 文件夹和 `ref` 文件夹都是非必要的，但除非您清楚自己在做什么，不建议去掉这三个文件夹。删除这三个文件夹可能会导致编译错误。
 
 ## 编译 LaTeX 文件
 
