@@ -5,7 +5,7 @@
 
 > [!NOTE]
 >
-> 实验报告中的全部实验流程于 **2025年12月5日** 确认有效。
+> 实验报告中的全部实验流程于 **2025年1月6日** 确认有效。
 
 ## Project Introduction / 项目简介
 
@@ -21,7 +21,9 @@ This repository contains my experimental reports and part of the source code for
 
 ## 用法
 
-本项目结构如下
+**实验报告可在 Release 中找到。**
+
+本项目结构如下：
 
 ```
 .
