@@ -1,0 +1,32 @@
+\begin{lstlisting}[caption = {\texttt{hide\_tool.c}}]
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+#include <errno.h>
+
+#define __NR_hide 470 
+int main(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("Usage: %s <pid> <1(hide)|0(show)>\n", argv[0]);
+        return 1;
+    }
+
+    pid_t pid = atoi(argv[1]);
+    int on = atoi(argv[2]);
+
+    printf("Command: Make PID %d %s...\n", pid, on ? "INVISIBLE" : "VISIBLE");
+    /* 调用系统调用 */
+    long ret = syscall(__NR_hide, pid, on);
+
+    if (ret == 0) {
+        printf("Success! System call returned 0.\n");
+    } else {
+        perror("Syscall failed");
+        printf("Error code: %d\n", errno);
+        if (errno == 38) printf("Hint: ENOSYS (38) means the syscall number is wrong or kernel is old.\n");
+    }
+
+    return 0;
+}
+\end{lstlisting}

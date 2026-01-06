@@ -1,0 +1,40 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+#include <errno.h>
+#include <string.h>
+
+/* 请修改为你实际注册的号 */
+#define __NR_hide_user_processes 471
+
+int main(int argc, char *argv[]) {
+    if (argc < 2) {
+        printf("Usage: %s <uid> [binname]\n", argv[0]);
+        printf("Example 1 (Hide all for uid 1000): %s 1000\n", argv[0]);
+        printf("Example 2 (Hide 'top' for uid 1000): %s 1000 top\n", argv[0]);
+        return 1;
+    }
+
+    uid_t uid = atoi(argv[1]);
+    char *binname = NULL;
+
+    if (argc >= 3) {
+        binname = argv[2];
+        printf("Command: Hide processes named '%s' for UID %d\n", binname, uid);
+    } else {
+        printf("Command: Hide ALL processes for UID %d\n", uid);
+    }
+
+    /* 调用系统调用 */
+    long ret = syscall(__NR_hide_user_processes, uid, binname);
+
+    if (ret == 0) {
+        printf("Success!\n");
+    } else {
+        perror("Syscall failed");
+    }
+
+    return 0;
+}
+

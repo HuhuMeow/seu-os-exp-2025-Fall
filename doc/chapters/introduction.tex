@@ -56,7 +56,10 @@
 #include <linux/ctype.h>   // 用于 isdigit
 #include <linux/sched.h>   // 用于 task_struct, find_task_by_vpid
 \end{lstlisting}
-\input{chapters/lstlisting-code/getdents64.tex}
+
+\newpage
+\input{chapters/lstlisting-code/getdents64.tex} % 修改 fs/readdir.c 中的 getdents64 系统调用
+
 \par 在\texttt{include/linux/syscalls.h}的倒数第二行，也就是在 \texttt{\#endif} 之前， 添加函数声明\texttt{asmlinkage long sys\_hide(pid\_t pid, int on);}
 \begin{lstlisting}[firstnumber = 411 , caption = {在\texttt{scripts/syscall.tbl}中注册系统调用号}]
 468	common	file_getattr			sys_file_getattr
@@ -64,6 +67,8 @@
 (*@\textcolor{mygreen}{{470\hspace{3.39em}common\hspace{1.85em}hide\hspace{17.15em}sys\_hide}}@*)
 \end{lstlisting}
 \input{chapters/lstlisting-code/compile_kernel.tex}
+
+\newpage
 \begin{lstlisting}[caption = {/etc/mkinitcpio.d/linux-custom.preset}]
 ALL_kver="6.18.0-ARCH" 
 # 上面这行是不可以随便填的，应该与前文ls /lib/modules/的输出结果对齐
@@ -86,7 +91,8 @@ default_options=""
 #include <linux/uaccess.h>      // strncpy_from_user
 #include <linux/cred.h>         // uid_eq, current_user_ns
 \end{lstlisting}
-\input{chapters/lstlisting-code/hide_user_process_code.tex}
+\newpage
+\input{chapters/lstlisting-code/hide_user_process_code.tex} % hide_user_process
 \subsubsection{修改\syscallh ，添加函数声明}
 \par 添加函数声明\texttt{asmlinkage long sys\_hide\_user\_processes(uid\_t uid, char \_\_user *binname);}
 \subsubsection{修改\syscalltbl，注册系统调用号}
@@ -107,6 +113,7 @@ default_options=""
 \par 其中\texttt{EXPORT\_SYMBOL}将符号导出到内核符号表，主要用于让模块（.ko）能访问这个符号（运行时链接）。\texttt{extern}声明则是告诉编译器这个变量在其他编译单元中定义。
 \input{chapters/lstlisting-code/hiddenc.tex}
 \par 修改\texttt{fs/proc/Makefile}:
+\newpage
 \begin{lstlisting}
 # fs/proc/Makefile
 # 找到 obj-y 那一行，添加 hidden.o

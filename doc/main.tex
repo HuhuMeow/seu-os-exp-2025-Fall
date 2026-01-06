@@ -19,38 +19,23 @@
 % \makeatother
 
 % 添加参考文献 bib 文件，注意使用符合 BibLaTeX（配合 Biber）的格式
-\addbibresource{ref/IEEEfull.bib}
-\addbibresource{ref/ref.bib}
+% \addbibresource{ref/IEEEfull.bib}
+% \addbibresource{ref/ref.bib}
 
-% amsthm 定理设置
-\newtheorem{theorem}{定理}[chapter]
-\newtheorem{definition}{定义}[chapter]
-\newtheorem{lemma}{引理}[chapter]
-\newtheorem{corollary}{推论}[chapter]
+% % amsthm 定理设置
+% \newtheorem{theorem}{定理}[chapter]
+% \newtheorem{definition}{定义}[chapter]
+% \newtheorem{lemma}{引理}[chapter]
+% \newtheorem{corollary}{推论}[chapter]
 
 \definecolor{mygreen}{rgb}{0,0.6,0}
 \definecolor{myblue}{RGB}{100, 149, 237}
-\lstset{
-    % basicstyle=\ttfamily,
-    escapeinside={(*@}{@*)},  % 设置转义字符
-    % numbers=left,
-    % numberstyle=\tiny,
-}
+\lstset{ escapeinside={(*@}{@*)},}% 设置转义字符
+
 \begin{document}
   \maketitle
-
-  % \chapter{绪论}\label{chap:introduction}
   \input{chapters/introduction} 
-  % \chapter{正文}\label{chap:body}
-  % \input{chapters/body}
   \input{chapters/shell}
   \input{chapters/fs}
   \input{chapters/appendix}
-  % \chapter{模板使用}\label{chap:usage}
-  % \input{chapters/usage}
-
-  % 此处可以插入更多的章节
-
-  % 参考文献
-  % \chapterBib\label{chap:bib}
 \end{document}
