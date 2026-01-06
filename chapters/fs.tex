@@ -8,6 +8,8 @@
 dd if=/dev/zero of=image bs=1k count=2000
 # 关联 loop 设备
 sudo losetup /dev/loop0 image
+# 检查
+losetup -a
 \end{lstlisting}
 \par \texttt{dd}是\texttt{linux}提供的数据复制工具，按块操作。在这里，我们指定它的输入源是\texttt{/dev/zero}，这是一个无限产生 \texttt{0x00} 字节的虚拟设备。我们通过\texttt{of=image}，将这虚拟设备产生的全零字节输出到当前目录下名为 \texttt{image} 的文件，指定每个块大小为1k，复制两千个块。这里的1k是1024个字节。
 \par 这里要注意，\texttt{dd} 命令中的 bs=1k 只是 \texttt{dd} 这个工具在复制数据时使用的缓冲区大小，它与文件系统的块大小无关。文件系统的块大小是在代码中定义的。
@@ -134,44 +136,79 @@ write(fd, entries, sizeof(entries));
 
 \par 格式化工具运行在用户态，它只是在磁盘上写入了一些特定格式的数据。要让内核能够识别和使用这个文件系统，我们需要编写一个内核模块。内核模块是可以动态加载到内核中的代码，它扩展了内核的功能而无需重新编译整个内核。
 
-\par 内核模块的入口和出口由\texttt{module\_init}和\texttt{module\_exit}宏指定。在初始化函数中，我们向内核注册我们的文件系统类型：
+\par 内核模块的入口和出口由\texttt{module\_init}和\texttt{module\_exit}宏指定。在初始化函数中，我们向内核注册我们的文件系统类型。需要注意的是，Linux内核在5.1版本之后引入了新的挂载API（\texttt{fs\_context}），替代了传统的\texttt{mount}回调函数。新API提供了更好的错误处理和配置管理能力。
+
+\par 使用新版API的文件系统类型注册如下：
 
 \begin{lstlisting}[language=C]
+// 新版挂载API: 上下文操作表
+static const struct fs_context_operations naive_context_ops = {
+    .get_tree = naive_get_tree,
+};
+
+// 初始化文件系统上下文
+static int naive_init_fs_context(struct fs_context *fc) {
+    fc->ops = &naive_context_ops;
+    return 0;
+}
+
+// 文件系统类型定义
 static struct file_system_type naive_fs_type = {
     .owner = THIS_MODULE,
     .name = "naive",
-    .mount = naive_mount,
+    .init_fs_context = naive_init_fs_context,  // 新版API
     .kill_sb = kill_block_super,
     .fs_flags = FS_REQUIRES_DEV,
 };
 
 static int __init naive_init(void) {
+    printk(KERN_INFO "NaiveFS: Module loaded\n");
     return register_filesystem(&naive_fs_type);
 }
 \end{lstlisting}
 
-\par \texttt{file\_system\_type}结构告诉内核这个文件系统的名称是``naive''，挂载时调用\texttt{naive\_mount}函数，卸载时使用内核提供的\texttt{kill\_block\_super}函数，且这个文件系统需要一个块设备（\texttt{FS\_REQUIRES\_DEV}）。注册成功后，用户就可以使用\texttt{mount -t naive}命令来挂载我们的文件系统了。
+\par 在新版API中，挂载流程被分解为多个步骤。\texttt{init\_fs\_context}函数负责初始化文件系统上下文（\texttt{fs\_context}），将其操作表（\texttt{ops}）设置为\texttt{naive\_context\_ops}。这个操作表中最关键的是\texttt{get\_tree}回调函数，它负责构建实际的文件系统树结构。\texttt{file\_system\_type}结构告诉内核此文件系统名称为``naive''，卸载时使用内核提供的\texttt{kill\_block\_super}函数，且这个文件系统需要一个块设备（\texttt{FS\_REQUIRES\_DEV}）。注册成功后，用户就可以使用\texttt{mount -t naive}命令来挂载我们的文件系统了。
 
 \subsection{挂载过程}
 
-\par 当用户执行挂载命令时，内核会调用我们注册的\texttt{naive\_mount}函数，它进而调用\texttt{mount\_bdev}，最终触发\texttt{naive\_fill\_super}来填充超级块对象。这个函数是整个挂载过程的核心：
+\par 当用户执行挂载命令时，内核会经历以下步骤：首先调用\texttt{naive\_init\_fs\_context}初始化文件系统上下文，然后调用\texttt{naive\_get\_tree}构建文件系统树，该函数内部调用\texttt{get\_tree\_bdev}处理块设备，最终触发\texttt{naive\_fill\_super}来填充超级块对象。
+
+\par 新版API中的\texttt{get\_tree}函数实现如下：
 
 \begin{lstlisting}[language=C]
-static int naive_fill_super(struct super_block *sb, void *data, int silent) {
+static int naive_get_tree(struct fs_context *fc) {
+    // 使用 get_tree_bdev 替代旧的 mount_bdev
+    return get_tree_bdev(fc, naive_fill_super);
+}
+\end{lstlisting}
+
+\par 相比旧版API，新版API的\texttt{naive\_fill\_super}函数签名发生了变化，第二个参数从\texttt{void *data}变为\texttt{struct fs\_context *fc}：
+
+\begin{lstlisting}[language=C]
+static int naive_fill_super(struct super_block *sb, struct fs_context *fc) {
     struct buffer_head *bh;
     struct naive_super_block *nsb;
     struct inode *root;
 
+    // 1. 设置块大小并读取 Block 0
     if (!sb_set_blocksize(sb, NAIVE_BLOCK_SIZE)) return -EINVAL;
     bh = sb_bread(sb, 0);
     if (!bh) return -EIO;
 
     nsb = (struct naive_super_block *)bh->b_data;
+
+    // 2. 验证 Magic Number
     if (nsb->magic != NAIVE_MAGIC) {
+        printk(KERN_ERR "NaiveFS: Magic mismatch. Expected 0x%X, Got 0x%X\n",
+               NAIVE_MAGIC, nsb->magic);
         brelse(bh);
         return -EINVAL;
     }
+    printk(KERN_INFO "NaiveFS: Mounted successfully. Magic matches.\n");
     brelse(bh);
+
+    sb->s_magic = NAIVE_MAGIC;
+    sb->s_op = NULL;
     // ... 创建根inode ...
 }
 \end{lstlisting}
@@ -282,6 +319,51 @@ static int naive_get_block(struct inode *inode, sector_t iblock,
 
 \par 这里的实现只支持直接块，即\texttt{data\_block}数组直接存储物理块号。当\texttt{iblock}超过9时返回\texttt{-EFBIG}错误（文件太大）。实际文件系统使用间接块来支持大文件：\texttt{data\_block[10]}可以指向一个块，该块中存储更多的物理块号，这样就能支持更大的文件。
 
-\subsection{小结}
+\subsection{编译与测试}
 
-\par 通过这个简易文件系统的实现，我们理解了文件系统的基本工作原理：超级块标识文件系统类型和全局信息，inode存储文件元数据和数据块位置，目录项建立文件名到inode的映射。内核通过VFS抽象层与具体文件系统交互，文件系统模块实现一组标准的操作函数来完成实际的读写工作。虽然这个实现省略了很多实际文件系统必需的功能（如写入支持、空间分配、日志等），但它清晰地展示了文件系统的核心架构。
+\par 完成代码编写后，我们需要编译格式化工具和内核模块，然后在虚拟块设备上进行测试。
+
+\begin{lstlisting}[language=bash]
+# 编译格式化工具
+gcc mkfs.naive.c -o mkfs.naive
+# 编译内核模块
+make
+\end{lstlisting}
+
+\par 格式化工具是一个普通的用户态程序，使用\texttt{gcc}直接编译即可。内核模块的编译则需要通过\texttt{make}调用内核构建系统，因为模块必须与当前运行的内核版本匹配，且需要链接内核符号。
+
+\begin{lstlisting}[language=bash]
+# 格式化虚拟块设备
+sudo ./mkfs.naive /dev/loop0
+\end{lstlisting}
+
+\par 格式化操作将超级块、根目录inode等初始数据结构写入块设备。此步骤需要\texttt{root}权限，因为我们要直接写入设备文件。
+
+\begin{lstlisting}[language=bash]
+# 加载内核模块
+sudo insmod naive_fs.ko
+# 检查
+lsmod | grep naive
+# 若要卸载内核模块
+sudo rmmod naive_fs
+\end{lstlisting}
+
+\par \texttt{insmod}命令将编译好的内核模块加载到内核空间。加载后，内核就能识别我们的\texttt{naive}文件系统类型。模块加载过程中会调用\texttt{module\_init}指定的初始化函数，该函数通过\texttt{register\_filesystem}向内核注册文件系统。
+
+\begin{lstlisting}[language=bash]
+# 创建挂载点并挂载文件系统
+mkdir -p mnt
+sudo mount -t naive /dev/loop0 mnt
+# 若要卸载文件系统
+sudo umount mnt
+\end{lstlisting}
+
+\par \texttt{mount}命令的\texttt{-t naive}参数指定文件系统类型。内核收到挂载请求后，会在已注册的文件系统中查找名为\texttt{naive}的类型，调用其\texttt{mount}回调函数读取超级块、验证魔数，并建立内存中的文件系统数据结构。挂载成功后，\texttt{mnt}目录就成为了我们文件系统的入口。
+
+\begin{lstlisting}[language=bash]
+# 验证挂载结果
+ls -la mnt/
+dmesg | tail
+\end{lstlisting}
+
+\par \texttt{ls -la mnt/}列出挂载点的内容，若挂载成功应能看到根目录。\texttt{dmesg}命令查看内核日志，我们在模块中通过\texttt{printk}输出的调试信息会显示在这里，便于排查问题。

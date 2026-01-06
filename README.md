@@ -21,7 +21,7 @@ This repository contains my experimental reports and part of the source code for
 
 ## 编译 LaTeX 文件
 
-在根目录下执行  `make`  即可编译，执行 `make clean` 清除编译时产生的临时文件。此方法在macOS上被确认为有效，如果您使用的是 Windows ，您可以在 [Teddy-van-Jerry/seuthesis2024b(东南大学 2024 届本科毕设 LaTeX 模板) ](https://github.com/Teddy-van-Jerry/seuthesis2024b) 的 `README` 中查找解决方案。
+在根目录下执行  `make`  即可编译，执行 `make clean` 清除编译时产生的临时文件。此方法在 macOS 上被确认为有效，如果您使用的是 Windows ，您可以在 [Teddy-van-Jerry/seuthesis2024b(东南大学 2024 届本科毕设 LaTeX 模板) ](https://github.com/Teddy-van-Jerry/seuthesis2024b) 的 `README` 中查找解决方案。
 
 ## License
 
