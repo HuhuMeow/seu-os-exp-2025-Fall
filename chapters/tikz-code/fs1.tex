@@ -1,33 +1,19 @@
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
-    block/.style={draw, minimum width=2.5cm, minimum height=1.2cm, align=center, font=\small},
+    block/.style={draw, minimum width=2.2cm, minimum height=1cm, align=center},
     arrow/.style={->, >=stealth, thick}
 ]
-    % --- 绘制各个块 (基于我们的 C 代码逻辑) ---
+    \node[block, fill=blue!20] (sb) at (0, 0) {超级块\\Block 0};
+    \node[block, fill=orange!20] (itable) at (2.5, 0) {inode表\\Block 1};
+    \node[block, fill=green!20] (rootdata) at (5, 0) {根目录数据\\Block 2};
+    \node[block, fill=gray!20] (reserved) at (7.5, 0) {保留区\\Block 3-9};
+    \node[block, fill=yellow!20] (data) at (10, 0) {数据区\\Block 10+};
     
-    % Block 0: 代码中直接 write(fd, &sb, ...) 到开头
-    \node[block, fill=blue!20] (sb) at (0, 0) {超级块\\Block 0\\(Magic: 0x114514)};
-    
-    % Block 1: 代码中 lseek 到 512 写入 Inode
-    \node[block, fill=orange!20] (itable) at (3, 0) {Inode 表\\Block 1\\(包含 Root Inode)};
-    
-    % Block 2: 代码中 lseek 到 1024 写入 "." 和 ".."
-    \node[block, fill=yellow!20] (rootdata) at (6, 0) {根目录数据\\Block 2\\(存 . 和 ..)};
-    
-    % Block 3+: 未使用区域
-    \node[block, fill=gray!10, dashed] (free) at (9, 0) {空闲数据区\\Block 3+};
-    
-    % --- 标注连接关系 ---
-    % \draw[arrow] (sb.east) -- (itable.west);
-    \draw[arrow] (itable.east) -- (rootdata.west);
-    \draw[arrow] (rootdata.east) -- (free.west);
-
-    \node[below=0.2cm, red] at (sb.south) {\texttt{Offset 0}};
-    \node[below=0.2cm, red] at (itable.south) {\texttt{Offset 512}};
-    \node[below=0.2cm, red] at (rootdata.south) {\texttt{Offset 1024}};
-    
+    \node[below=0.3cm] at (sb.south) {\footnotesize 偏移 0};
+    \node[below=0.3cm] at (itable.south) {\footnotesize 偏移 512};
+    \node[below=0.3cm] at (rootdata.south) {\footnotesize 偏移 1024};
 \end{tikzpicture}
 \caption{简易文件系统磁盘布局}
-\label{fig:real-fs-layout}
+\label{fig:fs-layout}
 \end{figure}
