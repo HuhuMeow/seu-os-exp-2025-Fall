@@ -7,6 +7,12 @@
 >
 > 实验报告中的全部实验流程于 **2025年1月6日** 确认有效。
 
+> [!CAUTION]
+>
+> “文件系统” 部分的实验报告和代码实现 AI 含量较高，请检查后使用。
+
+
+
 # Project Introduction / 项目简介
 
 This repository contains my experimental reports and part of the source code for the "Advanced Operating Systems Laboratory" course at Southeast University (Fall 2025).
